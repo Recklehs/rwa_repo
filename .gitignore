@@ -90,3 +90,9 @@ docker-compose.override.yml
 **/application-secret.yml
 **/application-secret.yaml
 **/application-*.properties
+
+
+# shared/.gitignore 또는 루트 .gitignore
+shared/wallets/*.keystore.json
+shared/wallets/*.json
+.env
