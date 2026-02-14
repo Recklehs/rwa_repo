@@ -220,6 +220,28 @@ Last updated: 2026-02-14
   - ownership transfer sequence executed in required order
   - final owner assertions passed
 
+### 2026-02-14 (Gas estimation report on local Hardhat)
+- Added dedicated gas-report test:
+  - `contracts/test/gas-report.spec.ts`
+- Test executes:
+  - deployment of all 6 contracts
+  - representative state-changing txs for each core contract function family
+  - market flow (`list`, `buy`, `cancel`)
+  - ownership handoff txs used in bootstrap path
+- Test writes gas logs to:
+  - `contracts/logs/gas/hardhat-gas-report.json`
+  - `contracts/logs/gas/hardhat-gas-report.md`
+- Local run result:
+  - `npm run test -- test/gas-report.spec.ts`: 1 passing
+  - measured tx count: 24
+  - total gas used: `6,086,486`
+  - sample total fee estimates:
+    - at `0.1 gwei`: `0.00060864 ETH`
+    - at `1 gwei`: `0.00608648 ETH`
+    - at `5 gwei`: `0.03043243 ETH`
+- Note:
+  - this is a local Hardhat profile and does not include live GIWA Sepolia L2/L1 fee dynamics.
+
 ## Pending / Next Milestones
 - Run live deploy to GIWA Sepolia.
 - Run bootstrap allowlist txs on GIWA Sepolia.
