@@ -42,6 +42,7 @@ typechain/
 typechain-types/
 .hardhat/
 .openzeppelin/
+contracts/ignition/deployments/chain-*/
 
 # --- Java / Gradle ---
 .gradle/
