@@ -1,6 +1,6 @@
 # Codex Spec Tracker
 
-Last updated: 2026-02-14
+Last updated: 2026-02-15
 
 ## Original User Spec (Initial)
 
@@ -241,6 +241,45 @@ Last updated: 2026-02-14
     - at `5 gwei`: `0.03043243 ETH`
 - Note:
   - this is a local Hardhat profile and does not include live GIWA Sepolia L2/L1 fee dynamics.
+
+### 2026-02-15 (Environment file policy hardening)
+- Updated root git ignore rules to keep example env files versioned while blocking real env files:
+  - added `!.env.example`
+  - added `!**/.env.example`
+  - retained `.env`, `.env.*`, `**/*.env`, `**/*.env.*` ignores for real secrets
+- Hardened wallet artifact ignores:
+  - `shared/wallets/**` (with optional `.gitkeep` exception)
+- Expanded `contracts/.env.example` comments to document each environment variable's purpose.
+- Created local runtime env file:
+  - `contracts/.env` copied from `contracts/.env.example`
+- Updated Blockscout endpoints in both env files to GIWA explorer domain:
+  - `GIWA_BLOCKSCOUT_API_URL=https://sepolia-explorer.giwa.io/api`
+  - `GIWA_BLOCKSCOUT_BROWSER_URL=https://sepolia-explorer.giwa.io`
+- Result:
+  - `contracts/.env.example` remains safe to commit to GitHub
+  - `contracts/.env` stays local-only and is ignored by git
+
+### 2026-02-15 (Wallet generation UX fixes for Hardhat 3)
+- Updated `contracts/scripts/gen-wallet.ts` to use `WALLET_NAME` env var instead of positional CLI args.
+  - Reason: Hardhat 3 `run` task does not forward extra positional args to scripts.
+- Updated `contracts/hardhat.config.ts` to only inject `networks.giwaSepolia.accounts` when `PRIVATE_KEY` matches `0x` + 64 hex.
+  - Reason: avoid HHE15 when `.env` keeps placeholder values for local non-deploy commands.
+- Validation:
+  - `npm run compile` passed after these changes.
+
+### 2026-02-15 (Keystore inspection script)
+- Added wallet inspection/decryption utility:
+  - `contracts/scripts/show-wallet.ts`
+- Added npm script:
+  - `wallet:show` -> `hardhat run scripts/show-wallet.ts`
+- Inputs:
+  - required: `WALLET_NAME`, `WALLET_PASSWORD`
+  - optional: `KEYSTORE_PATH`, `PRINT_PRIVATE_KEY=1`
+- Output:
+  - keystore path
+  - address (from keystore JSON and from decryption)
+  - mnemonic presence
+  - optional one-time private key print
 
 ## Pending / Next Milestones
 - Run live deploy to GIWA Sepolia.

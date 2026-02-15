@@ -4,7 +4,9 @@ import fs from "fs";
 import path from "path";
 
 async function main() {
-  const name = process.argv[2] ?? "wallet";
+  // Hardhat 3's `run` task doesn't forward extra positional args to scripts.
+  // Use WALLET_NAME env var as the primary way to set output filename.
+  const name = process.env.WALLET_NAME?.trim() || "wallet";
   const password = process.env.WALLET_PASSWORD;
   if (!password) {
     throw new Error("Set WALLET_PASSWORD env var (for keystore encryption).");
