@@ -1,0 +1,266 @@
+import { expect } from "chai";
+import { network } from "hardhat";
+
+describe("RWA suite", () => {
+  async function deployCore() {
+    const { ethers } = await network.connect();
+    const [deployer, issuer, treasury, seller, buyer, buyer2] = await ethers.getSigners();
+
+    const kyc = await ethers.deployContract("KYCRegistry");
+    await kyc.waitForDeployment();
+
+    const usd = await ethers.deployContract("MockUSD");
+    await usd.waitForDeployment();
+
+    const registry = await ethers.deployContract("PropertyRegistry");
+    await registry.waitForDeployment();
+
+    const share = await ethers.deployContract("PropertyShare1155", [
+      await kyc.getAddress(),
+      "ipfs://rwa/property-share"
+    ]);
+    await share.waitForDeployment();
+
+    const tokenizer = await ethers.deployContract("PropertyTokenizer", [
+      await registry.getAddress(),
+      await share.getAddress()
+    ]);
+    await tokenizer.waitForDeployment();
+
+    const market = await ethers.deployContract("FixedPriceMarketDvP");
+    await market.waitForDeployment();
+
+    return {
+      ethers,
+      deployer,
+      issuer,
+      treasury,
+      seller,
+      buyer,
+      buyer2,
+      kyc,
+      usd,
+      registry,
+      share,
+      tokenizer,
+      market
+    };
+  }
+
+  describe("Allowlist enforcement", () => {
+    it("reverts list when market is not allowlisted", async () => {
+      const { ethers, kyc, share, usd, market, seller } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 1001n;
+
+      await kyc.setAllowed(seller.address, true);
+      await share.mintBatch(seller.address, [tokenId], [shareScale]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+
+      await expect(
+        market
+          .connect(seller)
+          .list(await share.getAddress(), tokenId, await usd.getAddress(), shareScale, ethers.parseEther("10"))
+      ).to.be.revertedWithCustomError(share, "OperatorNotAllowed");
+    });
+
+    it("reverts buy when market was delisted from KYC", async () => {
+      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 2002n;
+      const listAmount = 2n * shareScale;
+      const unitPrice = ethers.parseEther("10");
+
+      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
+
+      await share.mintBatch(seller.address, [tokenId], [listAmount]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+
+      await usd.mint(buyer.address, ethers.parseEther("100"));
+      await usd.connect(buyer).approve(await market.getAddress(), ethers.parseEther("100"));
+
+      await kyc.setAllowed(await market.getAddress(), false);
+
+      await expect(market.connect(buyer).buy(1n, shareScale)).to.be.revertedWithCustomError(
+        share,
+        "OperatorNotAllowed"
+      );
+    });
+  });
+
+  describe("DvP atomicity", () => {
+    it("buy reverts on insufficient ERC20 allowance and transfers nothing", async () => {
+      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 3003n;
+      const listAmount = 2n * shareScale;
+      const unitPrice = ethers.parseEther("50");
+      const buyAmount = shareScale;
+      const expectedCost = ethers.parseEther("50");
+
+      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
+
+      await share.mintBatch(seller.address, [tokenId], [listAmount]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+
+      await usd.mint(buyer.address, ethers.parseEther("200"));
+      await usd.connect(buyer).approve(await market.getAddress(), expectedCost - 1n);
+
+      await expect(market.connect(buyer).buy(1n, buyAmount)).to.be.revert(ethers);
+
+      expect(await usd.balanceOf(seller.address)).to.equal(0n);
+      expect(await usd.balanceOf(buyer.address)).to.equal(ethers.parseEther("200"));
+      expect(await share.balanceOf(buyer.address, tokenId)).to.equal(0n);
+      expect(await share.balanceOf(await market.getAddress(), tokenId)).to.equal(listAmount);
+
+      const listing = await market.listings(1n);
+      expect(listing.remainingAmount).to.equal(listAmount);
+      expect(listing.status).to.equal(1n);
+    });
+
+    it("buy reverts when escrow is insufficient and no ERC20 transfer is persisted", async () => {
+      const { ethers, deployer, kyc, share, usd, market, seller, buyer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 3004n;
+      const listAmount = 2n * shareScale;
+      const unitPrice = ethers.parseEther("25");
+
+      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
+
+      await share.mintBatch(seller.address, [tokenId], [listAmount]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+
+      await share.connect(deployer).burn(await market.getAddress(), tokenId, listAmount);
+
+      await usd.mint(buyer.address, ethers.parseEther("100"));
+      await usd.connect(buyer).approve(await market.getAddress(), ethers.parseEther("100"));
+
+      await expect(market.connect(buyer).buy(1n, shareScale)).to.be.revert(ethers);
+
+      expect(await usd.balanceOf(seller.address)).to.equal(0n);
+      expect(await usd.balanceOf(buyer.address)).to.equal(ethers.parseEther("100"));
+      expect(await share.balanceOf(buyer.address, tokenId)).to.equal(0n);
+      expect(await share.balanceOf(await market.getAddress(), tokenId)).to.equal(0n);
+
+      const listing = await market.listings(1n);
+      expect(listing.remainingAmount).to.equal(listAmount);
+      expect(listing.status).to.equal(1n);
+    });
+  });
+
+  describe("Listing lifecycle", () => {
+    it("supports partial fills and tracks remainingAmount", async () => {
+      const { ethers, kyc, share, usd, market, seller, buyer, buyer2 } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 4001n;
+      const listAmount = 3n * shareScale;
+      const unitPrice = ethers.parseEther("30");
+
+      await kyc.batchSetAllowed(
+        [seller.address, buyer.address, buyer2.address, await market.getAddress()],
+        true
+      );
+
+      await share.mintBatch(seller.address, [tokenId], [listAmount]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+
+      await usd.mint(buyer.address, ethers.parseEther("500"));
+      await usd.mint(buyer2.address, ethers.parseEther("500"));
+      await usd.connect(buyer).approve(await market.getAddress(), ethers.parseEther("500"));
+      await usd.connect(buyer2).approve(await market.getAddress(), ethers.parseEther("500"));
+
+      await market.connect(buyer).buy(1n, shareScale);
+
+      let listing = await market.listings(1n);
+      expect(listing.remainingAmount).to.equal(2n * shareScale);
+      expect(listing.status).to.equal(1n);
+
+      await market.connect(buyer2).buy(1n, 2n * shareScale);
+
+      listing = await market.listings(1n);
+      expect(listing.remainingAmount).to.equal(0n);
+      expect(listing.status).to.equal(3n);
+
+      expect(await usd.balanceOf(seller.address)).to.equal(ethers.parseEther("90"));
+      expect(await share.balanceOf(buyer.address, tokenId)).to.equal(shareScale);
+      expect(await share.balanceOf(buyer2.address, tokenId)).to.equal(2n * shareScale);
+    });
+
+    it("cancel returns remaining shares to seller", async () => {
+      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 4002n;
+      const listAmount = 3n * shareScale;
+      const unitPrice = ethers.parseEther("12");
+
+      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
+
+      await share.mintBatch(seller.address, [tokenId], [listAmount]);
+      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
+      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+
+      await usd.mint(buyer.address, ethers.parseEther("100"));
+      await usd.connect(buyer).approve(await market.getAddress(), ethers.parseEther("100"));
+      await market.connect(buyer).buy(1n, shareScale);
+
+      await market.connect(seller).cancel(1n);
+
+      const listing = await market.listings(1n);
+      expect(listing.remainingAmount).to.equal(0n);
+      expect(listing.status).to.equal(2n);
+
+      expect(await share.balanceOf(seller.address, tokenId)).to.equal(2n * shareScale);
+      expect(await share.balanceOf(await market.getAddress(), tokenId)).to.equal(0n);
+    });
+  });
+
+  describe("Tokenizer", () => {
+    it("allocates ranges and mintUnits mints expected token IDs", async () => {
+      const { ethers, deployer, treasury, registry, share, tokenizer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const classA = ethers.id("CLASS_A");
+      const classB = ethers.id("CLASS_B");
+
+      await registry.connect(deployer).transferOwnership(await tokenizer.getAddress());
+      await share.connect(deployer).transferOwnership(await tokenizer.getAddress());
+
+      await expect(
+        tokenizer.connect(deployer).reserveAndRegisterClass(classA, ethers.id("DOC_A"), 3, 1_700_000_000)
+      )
+        .to.emit(tokenizer, "ClassReserved")
+        .withArgs(classA, 1n, 3n);
+
+      await expect(
+        tokenizer.connect(deployer).reserveAndRegisterClass(classB, ethers.id("DOC_B"), 2, 1_700_000_001)
+      )
+        .to.emit(tokenizer, "ClassReserved")
+        .withArgs(classB, 4n, 2n);
+
+      expect(await tokenizer.nextBaseTokenId()).to.equal(6n);
+
+      await expect(tokenizer.connect(deployer).mintUnits(classA, 1, 2, treasury.address))
+        .to.emit(tokenizer, "UnitsMinted")
+        .withArgs(classA, 1n, 2n, treasury.address);
+
+      expect(await share.balanceOf(treasury.address, 1n)).to.equal(0n);
+      expect(await share.balanceOf(treasury.address, 2n)).to.equal(shareScale);
+      expect(await share.balanceOf(treasury.address, 3n)).to.equal(shareScale);
+
+      const classAInfo = await registry.getClass(classA);
+      expect(classAInfo.baseTokenId).to.equal(1n);
+      expect(classAInfo.unitCount).to.equal(3n);
+      expect(classAInfo.status).to.equal(1n);
+    });
+  });
+});
