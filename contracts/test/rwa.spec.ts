@@ -262,5 +262,35 @@ describe("RWA suite", () => {
       expect(classAInfo.unitCount).to.equal(3n);
       expect(classAInfo.status).to.equal(1n);
     });
+
+    it("reverts when trying to mint an already-minted unit ID", async () => {
+      const { ethers, deployer, treasury, registry, share, tokenizer } = await deployCore();
+
+      const classA = ethers.id("CLASS_DUPLICATE_MINT");
+
+      await registry.connect(deployer).transferOwnership(await tokenizer.getAddress());
+      await share.connect(deployer).transferOwnership(await tokenizer.getAddress());
+
+      await tokenizer.connect(deployer).reserveAndRegisterClass(classA, ethers.id("DOC_DUPLICATE_MINT"), 2, 1_700_000_010);
+
+      await tokenizer.connect(deployer).mintUnits(classA, 0, 1, treasury.address);
+
+      await expect(tokenizer.connect(deployer).mintUnits(classA, 0, 1, treasury.address))
+        .to.be.revertedWithCustomError(tokenizer, "TokenAlreadyMinted")
+        .withArgs(1n);
+    });
+  });
+
+  describe("PropertyRegistry", () => {
+    it("rejects unknown status values", async () => {
+      const { ethers, registry } = await deployCore();
+
+      const classId = ethers.id("CLASS_STATUS_GUARD");
+      await registry.registerClass(classId, ethers.id("DOC_STATUS_GUARD"), 1, 5000, 1_700_000_020);
+
+      await expect(registry.setStatus(classId, 99))
+        .to.be.revertedWithCustomError(registry, "InvalidStatus")
+        .withArgs(99);
+    });
   });
 });

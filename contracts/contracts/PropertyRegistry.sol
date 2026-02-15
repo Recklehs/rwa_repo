@@ -25,6 +25,7 @@ contract PropertyRegistry is Ownable {
     error ClassAlreadyRegistered(bytes32 classId);
     error ClassNotFound(bytes32 classId);
     error InvalidUnitCount();
+    error InvalidStatus(uint8 status);
 
     constructor() Ownable(msg.sender) {}
 
@@ -55,6 +56,9 @@ contract PropertyRegistry is Ownable {
 
     function setStatus(bytes32 classId, uint8 status) external onlyOwner {
         _requireClassExists(classId);
+        if (status > STATUS_PAUSED) {
+            revert InvalidStatus(status);
+        }
         _classes[classId].status = status;
         emit ClassStatusChanged(classId, status);
     }

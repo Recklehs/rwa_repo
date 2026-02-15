@@ -4,15 +4,16 @@ import { fileURLToPath } from "node:url";
 
 import { network } from "hardhat";
 
+type DeploymentContractKey =
+  | "KYCRegistry"
+  | "MockUSD"
+  | "PropertyRegistry"
+  | "PropertyShare1155"
+  | "PropertyTokenizer"
+  | "FixedPriceMarketDvP";
+
 type DeploymentArtifact = {
-  contracts: {
-    KYCRegistry: string;
-    MockUSD: string;
-    PropertyRegistry: string;
-    PropertyShare1155: string;
-    PropertyTokenizer: string;
-    FixedPriceMarketDvP: string;
-  };
+  contracts?: Partial<Record<DeploymentContractKey, string>>;
 };
 
 type EthersLike = {
@@ -41,6 +42,19 @@ function assertAddress(label: string, actual: string, expected: string): void {
   if (actual.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(`Owner assertion failed for ${label}: expected ${expected}, got ${actual}`);
   }
+}
+
+function requireDeploymentAddress(
+  ethers: EthersLike,
+  deployment: DeploymentArtifact,
+  key: DeploymentContractKey
+): string {
+  const value = deployment.contracts?.[key];
+  if (!value || !ethers.isAddress(value)) {
+    throw new Error(`Invalid deployment artifact: missing or invalid contracts.${key}`);
+  }
+
+  return ethers.getAddress(value);
 }
 
 async function ensureAllowed(
@@ -120,13 +134,17 @@ async function main(): Promise<void> {
 
   const issuer = requireEnvAddress(ethers, "ISSUER_ADDRESS");
   const treasury = requireEnvAddress(ethers, "TREASURY_ADDRESS");
-  const tokenizerAddress = deployment.contracts.PropertyTokenizer;
-  const marketAddress = deployment.contracts.FixedPriceMarketDvP;
+  const kycAddress = requireDeploymentAddress(ethers, deployment, "KYCRegistry");
+  const mockUsdAddress = requireDeploymentAddress(ethers, deployment, "MockUSD");
+  const registryAddress = requireDeploymentAddress(ethers, deployment, "PropertyRegistry");
+  const shareAddress = requireDeploymentAddress(ethers, deployment, "PropertyShare1155");
+  const tokenizerAddress = requireDeploymentAddress(ethers, deployment, "PropertyTokenizer");
+  const marketAddress = requireDeploymentAddress(ethers, deployment, "FixedPriceMarketDvP");
 
-  const kyc = await ethers.getContractAt("KYCRegistry", deployment.contracts.KYCRegistry, deployer);
-  const mockUsd = await ethers.getContractAt("MockUSD", deployment.contracts.MockUSD, deployer);
-  const registry = await ethers.getContractAt("PropertyRegistry", deployment.contracts.PropertyRegistry, deployer);
-  const share = await ethers.getContractAt("PropertyShare1155", deployment.contracts.PropertyShare1155, deployer);
+  const kyc = await ethers.getContractAt("KYCRegistry", kycAddress, deployer);
+  const mockUsd = await ethers.getContractAt("MockUSD", mockUsdAddress, deployer);
+  const registry = await ethers.getContractAt("PropertyRegistry", registryAddress, deployer);
+  const share = await ethers.getContractAt("PropertyShare1155", shareAddress, deployer);
   const tokenizer = await ethers.getContractAt("PropertyTokenizer", tokenizerAddress, deployer);
 
   // 1) setAllowed(market, treasury, issuer, true)

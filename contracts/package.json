@@ -14,7 +14,7 @@
     "export:deployment:giwa": "hardhat run scripts/export-deployment.ts --network giwaSepolia",
     "bootstrap:giwa": "hardhat run scripts/bootstrap-giwa.ts --network giwaSepolia",
     "verify:giwa": "hardhat run scripts/verify-giwa.ts --network giwaSepolia",
-    "deploy:all:giwa": "npm run deploy:giwa && npm run export:deployment:giwa && npm run bootstrap:giwa"
+    "deploy:all:giwa": "npm run deploy:giwa && npm run export:deployment:giwa && npm run export:abi && npm run bootstrap:giwa"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.2.0"
