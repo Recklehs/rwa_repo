@@ -1,7 +1,8 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 
 const RwaModule = buildModule("RwaModule", (m) => {
-  const baseURI = m.getParameter("baseURI", "ipfs://rwa/property-share");
+  const envBaseURI = process.env.PROPERTY_SHARE_BASE_URI?.trim();
+  const baseURI = m.getParameter("baseURI", envBaseURI && envBaseURI.length > 0 ? envBaseURI : "ipfs://rwa/property-share");
 
   const mockUsd = m.contract("MockUSD", [], { id: "MockUSD" });
   const registry = m.contract("PropertyRegistry", [], { id: "PropertyRegistry", after: [mockUsd] });

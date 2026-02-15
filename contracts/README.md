@@ -26,6 +26,13 @@ npm run deploy:giwa
 npm run export:deployment:giwa
 npm run export:abi
 npm run bootstrap:giwa
+npm run verify:giwa
+```
+
+Or run the full sequence at once:
+
+```bash
+npm run deploy:all:giwa
 ```
 
 This version does not enforce on-chain KYC allowlists.
@@ -38,6 +45,8 @@ Bootstrap then enforces ownership handoff:
 - `PropertyTokenizer.owner -> ISSUER_ADDRESS`
 
 `ISSUER_ADDRESS` must be set to a non-zero address.
+
+`PropertyShare1155` base URI uses `PROPERTY_SHARE_BASE_URI` from `.env` by default during deployment.
 
 ## Verify on Blockscout
 
