@@ -8,12 +8,13 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "test:gas": "hardhat test test/gas-report.spec.ts",
+    "wallet:show": "hardhat run scripts/show-wallet.ts",
     "export:abi": "hardhat run scripts/export-abi.ts",
     "deploy:giwa": "hardhat ignition deploy ignition/modules/RwaModule.ts --network giwaSepolia",
     "export:deployment:giwa": "hardhat run scripts/export-deployment.ts --network giwaSepolia",
     "bootstrap:giwa": "hardhat run scripts/bootstrap-giwa.ts --network giwaSepolia",
     "verify:giwa": "hardhat run scripts/verify-giwa.ts --network giwaSepolia",
-    "deploy:all:giwa": "npm run deploy:giwa && npm run export:deployment:giwa && npm run bootstrap:giwa"
+    "deploy:all:giwa": "npm run deploy:giwa && npm run export:deployment:giwa && npm run export:abi && npm run bootstrap:giwa && npm run verify:giwa"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.2.0"

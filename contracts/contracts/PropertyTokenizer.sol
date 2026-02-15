@@ -23,6 +23,7 @@ contract PropertyTokenizer is Ownable {
     error InvalidMintCount();
     error InvalidMintRange();
     error InactiveClass(bytes32 classId);
+    error TokenAlreadyMinted(uint256 tokenId);
 
     constructor(address registryAddress, address shareAddress) Ownable(msg.sender) {
         if (registryAddress == address(0) || shareAddress == address(0)) {
@@ -75,7 +76,12 @@ contract PropertyTokenizer is Ownable {
 
         uint256 firstTokenId = classInfo.baseTokenId + uint256(startOffset);
         for (uint256 i = 0; i < count; ) {
-            ids[i] = firstTokenId + i;
+            uint256 tokenId = firstTokenId + i;
+            if (share.totalSupply(tokenId) != 0) {
+                revert TokenAlreadyMinted(tokenId);
+            }
+
+            ids[i] = tokenId;
             amounts[i] = SHARE_SCALE;
             unchecked {
                 ++i;

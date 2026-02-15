@@ -24,22 +24,29 @@ npm run test
 ```bash
 npm run deploy:giwa
 npm run export:deployment:giwa
+npm run export:abi
 npm run bootstrap:giwa
+npm run verify:giwa
 ```
 
-The bootstrap script allowlists:
-- deployed `FixedPriceMarketDvP`
-- `TREASURY_ADDRESS`
-- `ISSUER_ADDRESS`
+Or run the full sequence at once:
+
+```bash
+npm run deploy:all:giwa
+```
+
+This version does not enforce on-chain KYC allowlists.
+Compliance checks are expected to run in off-chain backend services.
 
 Bootstrap then enforces ownership handoff:
 - `PropertyRegistry.owner -> PropertyTokenizer`
 - `PropertyShare1155.owner -> PropertyTokenizer`
-- `KYCRegistry.owner -> ISSUER_ADDRESS`
 - `MockUSD.owner -> ISSUER_ADDRESS`
 - `PropertyTokenizer.owner -> ISSUER_ADDRESS`
 
-`ISSUER_ADDRESS` and `TREASURY_ADDRESS` must be set to non-zero addresses.
+`ISSUER_ADDRESS` must be set to a non-zero address.
+
+`PropertyShare1155` base URI uses `PROPERTY_SHARE_BASE_URI` from `.env` by default during deployment.
 
 ## Verify on Blockscout
 

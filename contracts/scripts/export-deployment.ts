@@ -44,7 +44,6 @@ async function main(): Promise<void> {
     chainId: chainIdNumber,
     deployedAt: new Date().toISOString(),
     contracts: {
-      KYCRegistry: pickAddress(addresses, "KYCRegistry"),
       MockUSD: pickAddress(addresses, "MockUSD"),
       PropertyRegistry: pickAddress(addresses, "PropertyRegistry"),
       PropertyShare1155: pickAddress(addresses, "PropertyShare1155"),

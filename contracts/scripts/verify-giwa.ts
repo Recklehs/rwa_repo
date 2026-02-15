@@ -5,15 +5,15 @@ import { fileURLToPath } from "node:url";
 import { verifyContract } from "@nomicfoundation/hardhat-verify/verify";
 import hre, { network } from "hardhat";
 
+type DeploymentContractKey =
+  | "MockUSD"
+  | "PropertyRegistry"
+  | "PropertyShare1155"
+  | "PropertyTokenizer"
+  | "FixedPriceMarketDvP";
+
 type DeploymentArtifact = {
-  contracts: {
-    KYCRegistry: string;
-    MockUSD: string;
-    PropertyRegistry: string;
-    PropertyShare1155: string;
-    PropertyTokenizer: string;
-    FixedPriceMarketDvP: string;
-  };
+  contracts?: Partial<Record<DeploymentContractKey, string>>;
 };
 
 type VerifyTarget = {
@@ -27,8 +27,35 @@ function isAlreadyVerified(error: unknown): boolean {
   return /already verified|already been verified|smart-contract already verified/i.test(message);
 }
 
+function requireDeploymentAddress(
+  ethers: { isAddress(address: string): boolean; getAddress(address: string): string },
+  deployment: DeploymentArtifact,
+  key: DeploymentContractKey
+): string {
+  const value = deployment.contracts?.[key];
+  if (!value || !ethers.isAddress(value)) {
+    throw new Error(`Invalid deployment artifact: missing or invalid contracts.${key}`);
+  }
+
+  return ethers.getAddress(value);
+}
+
+function deriveBaseUriFromTokenUri(tokenUri: string): string | null {
+  if (tokenUri.length === 0) {
+    return "";
+  }
+
+  const suffix = "/0.json";
+  if (!tokenUri.endsWith(suffix)) {
+    return null;
+  }
+
+  return tokenUri.slice(0, -suffix.length);
+}
+
 async function main(): Promise<void> {
   const connection = await network.connect();
+  const { ethers } = connection;
   const networkName = connection.networkName;
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -39,37 +66,51 @@ async function main(): Promise<void> {
   }
 
   const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8")) as DeploymentArtifact;
-  const baseURI = process.env.PROPERTY_SHARE_BASE_URI || "ipfs://rwa/property-share";
+  const mockUsdAddress = requireDeploymentAddress(ethers, deployment, "MockUSD");
+  const registryAddress = requireDeploymentAddress(ethers, deployment, "PropertyRegistry");
+  const shareAddress = requireDeploymentAddress(ethers, deployment, "PropertyShare1155");
+  const tokenizerAddress = requireDeploymentAddress(ethers, deployment, "PropertyTokenizer");
+  const marketAddress = requireDeploymentAddress(ethers, deployment, "FixedPriceMarketDvP");
+  const configuredBaseURI = process.env.PROPERTY_SHARE_BASE_URI?.trim();
+  let baseURI = configuredBaseURI;
+  if (!baseURI) {
+    const share = await ethers.getContractAt("PropertyShare1155", shareAddress);
+    const sampleTokenUri = await share.uri(0n);
+    const derivedBaseURI = deriveBaseUriFromTokenUri(sampleTokenUri);
+    if (derivedBaseURI === null) {
+      throw new Error(
+        "Unable to derive PROPERTY_SHARE_BASE_URI from on-chain uri(0); set PROPERTY_SHARE_BASE_URI explicitly."
+      );
+    }
+
+    baseURI = derivedBaseURI;
+    console.log(`Derived PROPERTY_SHARE_BASE_URI from on-chain uri(0): ${baseURI}`);
+  }
 
   const targets: VerifyTarget[] = [
     {
-      name: "KYCRegistry",
-      address: deployment.contracts.KYCRegistry,
-      constructorArguments: []
-    },
-    {
       name: "MockUSD",
-      address: deployment.contracts.MockUSD,
+      address: mockUsdAddress,
       constructorArguments: []
     },
     {
       name: "PropertyRegistry",
-      address: deployment.contracts.PropertyRegistry,
+      address: registryAddress,
       constructorArguments: []
     },
     {
       name: "PropertyShare1155",
-      address: deployment.contracts.PropertyShare1155,
-      constructorArguments: [deployment.contracts.KYCRegistry, baseURI]
+      address: shareAddress,
+      constructorArguments: [baseURI]
     },
     {
       name: "PropertyTokenizer",
-      address: deployment.contracts.PropertyTokenizer,
-      constructorArguments: [deployment.contracts.PropertyRegistry, deployment.contracts.PropertyShare1155]
+      address: tokenizerAddress,
+      constructorArguments: [registryAddress, shareAddress]
     },
     {
       name: "FixedPriceMarketDvP",
-      address: deployment.contracts.FixedPriceMarketDvP,
+      address: marketAddress,
       constructorArguments: []
     }
   ];

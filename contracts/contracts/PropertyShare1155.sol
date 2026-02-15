@@ -6,33 +6,18 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC1155Supply} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-interface IKYCRegistry {
-    function isAllowed(address user) external view returns (bool);
-}
-
 contract PropertyShare1155 is ERC1155, ERC1155Supply, Ownable {
     using Strings for uint256;
 
     uint256 public constant SHARE_SCALE = 1e18;
 
-    IKYCRegistry public immutable kyc;
-
     string private _baseTokenURI;
 
     event BaseURIUpdated(string baseURI);
 
-    error ZeroAddress();
-    error OperatorNotAllowed(address operator);
-    error SenderNotAllowed(address from);
-    error ReceiverNotAllowed(address to);
     error UnauthorizedBurn(address caller);
 
-    constructor(address kycRegistry, string memory baseURI) ERC1155("") Ownable(msg.sender) {
-        if (kycRegistry == address(0)) {
-            revert ZeroAddress();
-        }
-
-        kyc = IKYCRegistry(kycRegistry);
+    constructor(string memory baseURI) ERC1155("") Ownable(msg.sender) {
         _baseTokenURI = baseURI;
     }
 
@@ -67,18 +52,6 @@ contract PropertyShare1155 is ERC1155, ERC1155Supply, Ownable {
         uint256[] memory ids,
         uint256[] memory amounts
     ) internal override(ERC1155, ERC1155Supply) {
-        if (from != address(0) && to != address(0)) {
-            if (!kyc.isAllowed(msg.sender)) {
-                revert OperatorNotAllowed(msg.sender);
-            }
-            if (!kyc.isAllowed(from)) {
-                revert SenderNotAllowed(from);
-            }
-            if (!kyc.isAllowed(to)) {
-                revert ReceiverNotAllowed(to);
-            }
-        }
-
         super._update(from, to, ids, amounts);
     }
 }

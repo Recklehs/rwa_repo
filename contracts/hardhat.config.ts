@@ -9,10 +9,11 @@ import hardhatVerifyPlugin from "@nomicfoundation/hardhat-verify";
 dotenv.config();
 
 const privateKey = process.env.PRIVATE_KEY;
+const isValidPrivateKey = typeof privateKey === "string" && /^0x[a-fA-F0-9]{64}$/.test(privateKey);
 const giwaRpcUrl = process.env.GIWA_SEPOLIA_RPC_URL || "https://sepolia-rpc.giwa.io";
 const giwaChainId = Number(process.env.GIWA_SEPOLIA_CHAIN_ID || "91342");
-const blockscoutApiUrl = process.env.GIWA_BLOCKSCOUT_API_URL || "https://sepolia-blockscout.giwa.io/api";
-const blockscoutBrowserUrl = process.env.GIWA_BLOCKSCOUT_BROWSER_URL || "https://sepolia-blockscout.giwa.io";
+const blockscoutApiUrl = process.env.GIWA_BLOCKSCOUT_API_URL || "https://sepolia-explorer.giwa.io/api";
+const blockscoutBrowserUrl = process.env.GIWA_BLOCKSCOUT_BROWSER_URL || "https://sepolia-explorer.giwa.io";
 
 export default defineConfig({
   plugins: [
@@ -48,7 +49,7 @@ export default defineConfig({
       chainType: "op",
       url: giwaRpcUrl,
       chainId: giwaChainId,
-      accounts: privateKey ? [privateKey] : []
+      accounts: isValidPrivateKey ? [privateKey] : []
     }
   },
   chainDescriptors: {
