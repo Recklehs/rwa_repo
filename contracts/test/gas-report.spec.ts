@@ -94,19 +94,11 @@ describe("Gas report", () => {
       return contract;
     };
 
-    const kyc = await deployAndTrack("KYCRegistry");
     const usd = await deployAndTrack("MockUSD");
     const registry = await deployAndTrack("PropertyRegistry");
-    const share = await deployAndTrack("PropertyShare1155", [await kyc.getAddress(), "ipfs://rwa/property-share"]);
+    const share = await deployAndTrack("PropertyShare1155", ["ipfs://rwa/property-share"]);
     const tokenizer = await deployAndTrack("PropertyTokenizer", [await registry.getAddress(), await share.getAddress()]);
     const market = await deployAndTrack("FixedPriceMarketDvP");
-
-    await recordTx("tx", "KYCRegistry.setAllowed(seller,true)", kyc.setAllowed(seller.address, true));
-    await recordTx(
-      "tx",
-      "KYCRegistry.batchSetAllowed([buyer,buyer2,market,treasury,issuer],true)",
-      kyc.batchSetAllowed([buyer.address, buyer2.address, await market.getAddress(), treasury.address, issuer.address], true)
-    );
 
     const classDirect = ethers.id("CLASS_DIRECT");
     await recordTx(

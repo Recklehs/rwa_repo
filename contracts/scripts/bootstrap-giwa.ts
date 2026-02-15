@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { network } from "hardhat";
 
 type DeploymentContractKey =
-  | "KYCRegistry"
   | "MockUSD"
   | "PropertyRegistry"
   | "PropertyShare1155"
@@ -55,25 +54,6 @@ function requireDeploymentAddress(
   }
 
   return ethers.getAddress(value);
-}
-
-async function ensureAllowed(
-  kyc: {
-    isAllowed(account: string): Promise<boolean>;
-    setAllowed(account: string, allowed: boolean): Promise<{ hash: string; wait(): Promise<unknown> }>;
-  },
-  label: string,
-  account: string
-): Promise<void> {
-  const alreadyAllowed = await kyc.isAllowed(account);
-  if (alreadyAllowed) {
-    console.log(`${label} already allowlisted: ${account}`);
-    return;
-  }
-
-  const tx = await kyc.setAllowed(account, true);
-  await tx.wait();
-  console.log(`Allowlisted ${label}: ${account} (tx: ${tx.hash})`);
 }
 
 async function ensureOwnership(
@@ -133,42 +113,30 @@ async function main(): Promise<void> {
   const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8")) as DeploymentArtifact;
 
   const issuer = requireEnvAddress(ethers, "ISSUER_ADDRESS");
-  const treasury = requireEnvAddress(ethers, "TREASURY_ADDRESS");
-  const kycAddress = requireDeploymentAddress(ethers, deployment, "KYCRegistry");
   const mockUsdAddress = requireDeploymentAddress(ethers, deployment, "MockUSD");
   const registryAddress = requireDeploymentAddress(ethers, deployment, "PropertyRegistry");
   const shareAddress = requireDeploymentAddress(ethers, deployment, "PropertyShare1155");
   const tokenizerAddress = requireDeploymentAddress(ethers, deployment, "PropertyTokenizer");
   const marketAddress = requireDeploymentAddress(ethers, deployment, "FixedPriceMarketDvP");
 
-  const kyc = await ethers.getContractAt("KYCRegistry", kycAddress, deployer);
   const mockUsd = await ethers.getContractAt("MockUSD", mockUsdAddress, deployer);
   const registry = await ethers.getContractAt("PropertyRegistry", registryAddress, deployer);
   const share = await ethers.getContractAt("PropertyShare1155", shareAddress, deployer);
   const tokenizer = await ethers.getContractAt("PropertyTokenizer", tokenizerAddress, deployer);
 
-  // 1) setAllowed(market, treasury, issuer, true)
-  await ensureAllowed(kyc, "market", marketAddress);
-  await ensureAllowed(kyc, "treasury", treasury);
-  await ensureAllowed(kyc, "issuer", issuer);
-
-  // 2) transferOwnership(PropertyRegistry -> Tokenizer)
+  // 1) transferOwnership(PropertyRegistry -> Tokenizer)
   await ensureOwnership(registry, "PropertyRegistry", tokenizerAddress);
 
-  // 3) transferOwnership(PropertyShare1155 -> Tokenizer)
+  // 2) transferOwnership(PropertyShare1155 -> Tokenizer)
   await ensureOwnership(share, "PropertyShare1155", tokenizerAddress);
 
-  // 4) transferOwnership(KYCRegistry -> issuer)
-  await ensureOwnership(kyc, "KYCRegistry", issuer);
-
-  // 5) transferOwnership(MockUSD -> issuer)
+  // 3) transferOwnership(MockUSD -> issuer)
   await ensureOwnership(mockUsd, "MockUSD", issuer);
 
-  // 6) transferOwnership(Tokenizer -> issuer)
+  // 4) transferOwnership(Tokenizer -> issuer)
   await ensureOwnership(tokenizer, "PropertyTokenizer", issuer);
 
-  // 7) assert owner() values match; fail otherwise.
-  assertAddress("KYCRegistry.owner", await kyc.owner(), issuer);
+  // 5) assert owner() values match; fail otherwise.
   assertAddress("MockUSD.owner", await mockUsd.owner(), issuer);
   assertAddress("PropertyTokenizer.owner", await tokenizer.owner(), issuer);
   assertAddress("PropertyRegistry.owner", await registry.owner(), tokenizerAddress);

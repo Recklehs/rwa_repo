@@ -6,19 +6,13 @@ describe("RWA suite", () => {
     const { ethers } = await network.connect();
     const [deployer, issuer, treasury, seller, buyer, buyer2] = await ethers.getSigners();
 
-    const kyc = await ethers.deployContract("KYCRegistry");
-    await kyc.waitForDeployment();
-
     const usd = await ethers.deployContract("MockUSD");
     await usd.waitForDeployment();
 
     const registry = await ethers.deployContract("PropertyRegistry");
     await registry.waitForDeployment();
 
-    const share = await ethers.deployContract("PropertyShare1155", [
-      await kyc.getAddress(),
-      "ipfs://rwa/property-share"
-    ]);
+    const share = await ethers.deployContract("PropertyShare1155", ["ipfs://rwa/property-share"]);
     await share.waitForDeployment();
 
     const tokenizer = await ethers.deployContract("PropertyTokenizer", [
@@ -38,7 +32,6 @@ describe("RWA suite", () => {
       seller,
       buyer,
       buyer2,
-      kyc,
       usd,
       registry,
       share,
@@ -47,53 +40,46 @@ describe("RWA suite", () => {
     };
   }
 
-  describe("Allowlist enforcement", () => {
-    it("reverts list when market is not allowlisted", async () => {
-      const { ethers, kyc, share, usd, market, seller } = await deployCore();
+  describe("Off-chain compliance model", () => {
+    it("allows listing and buying without on-chain allowlist checks", async () => {
+      const { ethers, share, usd, market, seller, buyer } = await deployCore();
 
       const shareScale = ethers.parseEther("1");
       const tokenId = 1001n;
+      const unitPrice = ethers.parseEther("10");
 
-      await kyc.setAllowed(seller.address, true);
       await share.mintBatch(seller.address, [tokenId], [shareScale]);
       await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
 
-      await expect(
-        market
-          .connect(seller)
-          .list(await share.getAddress(), tokenId, await usd.getAddress(), shareScale, ethers.parseEther("10"))
-      ).to.be.revertedWithCustomError(share, "OperatorNotAllowed");
-    });
-
-    it("reverts buy when market was delisted from KYC", async () => {
-      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
-
-      const shareScale = ethers.parseEther("1");
-      const tokenId = 2002n;
-      const listAmount = 2n * shareScale;
-      const unitPrice = ethers.parseEther("10");
-
-      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
-
-      await share.mintBatch(seller.address, [tokenId], [listAmount]);
-      await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
-      await market.connect(seller).list(await share.getAddress(), tokenId, await usd.getAddress(), listAmount, unitPrice);
+      await market
+        .connect(seller)
+        .list(await share.getAddress(), tokenId, await usd.getAddress(), shareScale, unitPrice);
 
       await usd.mint(buyer.address, ethers.parseEther("100"));
       await usd.connect(buyer).approve(await market.getAddress(), ethers.parseEther("100"));
+      await market.connect(buyer).buy(1n, shareScale);
 
-      await kyc.setAllowed(await market.getAddress(), false);
+      expect(await share.balanceOf(buyer.address, tokenId)).to.equal(shareScale);
+      expect(await usd.balanceOf(seller.address)).to.equal(unitPrice);
+    });
 
-      await expect(market.connect(buyer).buy(1n, shareScale)).to.be.revertedWithCustomError(
-        share,
-        "OperatorNotAllowed"
-      );
+    it("allows direct wallet-to-wallet transfers", async () => {
+      const { ethers, share, seller, buyer } = await deployCore();
+
+      const shareScale = ethers.parseEther("1");
+      const tokenId = 1002n;
+
+      await share.mintBatch(seller.address, [tokenId], [shareScale]);
+      await share.connect(seller).safeTransferFrom(seller.address, buyer.address, tokenId, shareScale, "0x");
+
+      expect(await share.balanceOf(seller.address, tokenId)).to.equal(0n);
+      expect(await share.balanceOf(buyer.address, tokenId)).to.equal(shareScale);
     });
   });
 
   describe("DvP atomicity", () => {
     it("buy reverts on insufficient ERC20 allowance and transfers nothing", async () => {
-      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
+      const { ethers, share, usd, market, seller, buyer } = await deployCore();
 
       const shareScale = ethers.parseEther("1");
       const tokenId = 3003n;
@@ -101,8 +87,6 @@ describe("RWA suite", () => {
       const unitPrice = ethers.parseEther("50");
       const buyAmount = shareScale;
       const expectedCost = ethers.parseEther("50");
-
-      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
 
       await share.mintBatch(seller.address, [tokenId], [listAmount]);
       await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
@@ -124,14 +108,12 @@ describe("RWA suite", () => {
     });
 
     it("buy reverts when escrow is insufficient and no ERC20 transfer is persisted", async () => {
-      const { ethers, deployer, kyc, share, usd, market, seller, buyer } = await deployCore();
+      const { ethers, deployer, share, usd, market, seller, buyer } = await deployCore();
 
       const shareScale = ethers.parseEther("1");
       const tokenId = 3004n;
       const listAmount = 2n * shareScale;
       const unitPrice = ethers.parseEther("25");
-
-      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
 
       await share.mintBatch(seller.address, [tokenId], [listAmount]);
       await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
@@ -157,17 +139,12 @@ describe("RWA suite", () => {
 
   describe("Listing lifecycle", () => {
     it("supports partial fills and tracks remainingAmount", async () => {
-      const { ethers, kyc, share, usd, market, seller, buyer, buyer2 } = await deployCore();
+      const { ethers, share, usd, market, seller, buyer, buyer2 } = await deployCore();
 
       const shareScale = ethers.parseEther("1");
       const tokenId = 4001n;
       const listAmount = 3n * shareScale;
       const unitPrice = ethers.parseEther("30");
-
-      await kyc.batchSetAllowed(
-        [seller.address, buyer.address, buyer2.address, await market.getAddress()],
-        true
-      );
 
       await share.mintBatch(seller.address, [tokenId], [listAmount]);
       await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
@@ -196,14 +173,12 @@ describe("RWA suite", () => {
     });
 
     it("cancel returns remaining shares to seller", async () => {
-      const { ethers, kyc, share, usd, market, seller, buyer } = await deployCore();
+      const { ethers, share, usd, market, seller, buyer } = await deployCore();
 
       const shareScale = ethers.parseEther("1");
       const tokenId = 4002n;
       const listAmount = 3n * shareScale;
       const unitPrice = ethers.parseEther("12");
-
-      await kyc.batchSetAllowed([seller.address, buyer.address, await market.getAddress()], true);
 
       await share.mintBatch(seller.address, [tokenId], [listAmount]);
       await share.connect(seller).setApprovalForAll(await market.getAddress(), true);
@@ -271,7 +246,9 @@ describe("RWA suite", () => {
       await registry.connect(deployer).transferOwnership(await tokenizer.getAddress());
       await share.connect(deployer).transferOwnership(await tokenizer.getAddress());
 
-      await tokenizer.connect(deployer).reserveAndRegisterClass(classA, ethers.id("DOC_DUPLICATE_MINT"), 2, 1_700_000_010);
+      await tokenizer
+        .connect(deployer)
+        .reserveAndRegisterClass(classA, ethers.id("DOC_DUPLICATE_MINT"), 2, 1_700_000_010);
 
       await tokenizer.connect(deployer).mintUnits(classA, 0, 1, treasury.address);
 

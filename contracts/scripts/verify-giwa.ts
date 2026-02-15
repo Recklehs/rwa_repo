@@ -6,7 +6,6 @@ import { verifyContract } from "@nomicfoundation/hardhat-verify/verify";
 import hre, { network } from "hardhat";
 
 type DeploymentContractKey =
-  | "KYCRegistry"
   | "MockUSD"
   | "PropertyRegistry"
   | "PropertyShare1155"
@@ -67,7 +66,6 @@ async function main(): Promise<void> {
   }
 
   const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8")) as DeploymentArtifact;
-  const kycAddress = requireDeploymentAddress(ethers, deployment, "KYCRegistry");
   const mockUsdAddress = requireDeploymentAddress(ethers, deployment, "MockUSD");
   const registryAddress = requireDeploymentAddress(ethers, deployment, "PropertyRegistry");
   const shareAddress = requireDeploymentAddress(ethers, deployment, "PropertyShare1155");
@@ -91,11 +89,6 @@ async function main(): Promise<void> {
 
   const targets: VerifyTarget[] = [
     {
-      name: "KYCRegistry",
-      address: kycAddress,
-      constructorArguments: []
-    },
-    {
       name: "MockUSD",
       address: mockUsdAddress,
       constructorArguments: []
@@ -108,7 +101,7 @@ async function main(): Promise<void> {
     {
       name: "PropertyShare1155",
       address: shareAddress,
-      constructorArguments: [kycAddress, baseURI]
+      constructorArguments: [baseURI]
     },
     {
       name: "PropertyTokenizer",
