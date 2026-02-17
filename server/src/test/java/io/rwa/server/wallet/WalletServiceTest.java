@@ -54,8 +54,13 @@ class WalletServiceTest {
     @DisplayName("signup은 사용자/지갑을 저장하고 UserSignedUp 이벤트를 발행한다")
     void signupShouldPersistUserAndWalletAndPublishEvent() {
         // given: signup 수행에 필요한 암호화/저장 목 동작을 준비한다.
+        UUID userId = UUID.fromString("0199587d-78f9-7000-8000-000000000001");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> {
+            UserEntity entity = invocation.getArgument(0);
+            entity.setUserId(userId);
+            return entity;
+        });
         when(walletCryptoService.encryptPrivateKey(any())).thenReturn(new byte[] { 1, 2, 3 });
-        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(walletRepository.save(any(WalletEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // when: 신규 가입을 실행한다.
@@ -65,13 +70,12 @@ class WalletServiceTest {
         ArgumentCaptor<String> privateKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(walletCryptoService).encryptPrivateKey(privateKeyCaptor.capture());
         assertThat(privateKeyCaptor.getValue()).matches("^[0-9a-fA-F]{64}$");
-
         ArgumentCaptor<UserEntity> userCaptor = ArgumentCaptor.forClass(UserEntity.class);
         verify(userRepository).save(userCaptor.capture());
         UserEntity savedUser = userCaptor.getValue();
-        assertThat(savedUser.getUserId()).isEqualTo(result.userId());
-        assertThat(savedUser.getComplianceStatus()).isEqualTo(ComplianceStatus.PENDING);
+        assertThat(result.userId()).isEqualTo(userId);
         assertThat(savedUser.getCreatedAt()).isNotNull();
+        assertThat(savedUser.getComplianceStatus()).isEqualTo(ComplianceStatus.PENDING);
         assertThat(savedUser.getComplianceUpdatedAt()).isNotNull();
 
         ArgumentCaptor<WalletEntity> walletCaptor = ArgumentCaptor.forClass(WalletEntity.class);

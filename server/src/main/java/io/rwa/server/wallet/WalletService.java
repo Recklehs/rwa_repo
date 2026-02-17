@@ -39,16 +39,18 @@ public class WalletService {
     public SignupResult signup() {
         try {
             ECKeyPair keyPair = Keys.createEcKeyPair();
-            UUID userId = UUID.randomUUID();
             String address = "0x" + Keys.getAddress(keyPair.getPublicKey());
             String privateKeyHex = Numeric.toHexStringNoPrefixZeroPadded(keyPair.getPrivateKey(), 64);
 
             UserEntity user = new UserEntity();
-            user.setUserId(userId);
             user.setCreatedAt(Instant.now());
             user.setComplianceStatus(ComplianceStatus.PENDING);
             user.setComplianceUpdatedAt(Instant.now());
-            userRepository.save(user);
+            UserEntity savedUser = userRepository.save(user);
+            UUID userId = savedUser.getUserId();
+            if (userId == null) {
+                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to get generated user_id from database");
+            }
 
             WalletEntity wallet = new WalletEntity();
             wallet.setUserId(userId);
