@@ -54,6 +54,7 @@ build/
 *.war
 *.ear
 *.iml
+!server/gradle/wrapper/gradle-wrapper.jar
 
 # --- Server / module-specific generated dirs ---
 server/build/
