@@ -219,3 +219,10 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Added Gradle Wrapper under `server/gradle/wrapper` and `server/gradlew*`.
   - Added smoke script `server/scripts/smoke_e2e.sh` and usage guide `server/scripts/README.md`.
   - Verified server module build/tests pass with wrapper (`./gradlew test`).
+- 2026-02-17: Added `.env`-based server configuration workflow.
+  - Enabled optional `.env` loading via `spring.config.import` in `server/src/main/resources/application.yml`.
+  - Added template file `server/.env.example` for local runtime variable management.
+  - Updated root `.gitignore` to explicitly ignore `server/.env` while allowing `server/.env.example`.
+- 2026-02-17: Updated environment and local infra defaults for current setup.
+  - Updated `server/.env` DB settings to Azure PostgreSQL endpoint (`giwapsqlserver.postgres.database.azure.com`) using provided administrator login credentials.
+  - Updated local infra Postgres image to `postgres:17.7` in `infra/docker-compose.yml`.

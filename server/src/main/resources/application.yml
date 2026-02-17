@@ -1,6 +1,8 @@
 spring:
   application:
     name: rwa-server
+  config:
+    import: optional:file:.env[.properties],optional:file:server/.env[.properties]
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/rwa}
     username: ${DB_USER:rwa}

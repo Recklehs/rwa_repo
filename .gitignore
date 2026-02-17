@@ -8,8 +8,10 @@ Desktop.ini
 .env.*
 **/*.env
 **/*.env.*
+server/.env
 !.env.example
 !**/.env.example
+!server/.env.example
 *.pem
 *.key
 *.p12
