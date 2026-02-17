@@ -191,6 +191,42 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Retry scheduler does not hold DB lock while sending Kafka
 - Listing lag scenario still allows `/trade/buy` via on-chain listing fallback
 
+## 10) JUnit test coverage (implemented: 2026-02-17)
+- Test execution command: `cd server && ./gradlew test`
+- Latest result: `18 tests, 0 failures, 0 errors`
+
+### Unit tests
+- `server/src/test/java/io/rwa/server/wallet/WalletServiceTest.java`
+  - `signup()` persists `users/wallets`, encrypts private key, publishes `UserSignedUp` outbox event payload.
+  - `assertApproved()` rejects non-approved users with `403`.
+  - `getWallet()` returns `404` when wallet row is missing.
+- `server/src/test/java/io/rwa/server/trade/TradeServiceTest.java`
+  - `list()` submits approval tx first when `isApprovedForAll=false`, then submits list tx.
+  - `list()` rejects missing `tokenId` and `unitId` with `400`.
+  - `buy()` rejects non-ACTIVE listing with `409`.
+  - `buy()` submits approve+buy tx sequence when allowance is insufficient and validates cost calculation.
+
+### Web integration tests (MockMvc)
+- `server/src/test/java/io/rwa/server/auth/AuthIdempotencyIntegrationTest.java`
+  - `/auth/signup` without `Idempotency-Key` returns `400`.
+  - First request with key stores completed idempotency response.
+  - Repeated request with same key returns stored response (replay) and skips `walletService.signup()`.
+- `server/src/test/java/io/rwa/server/compliance/ComplianceAdminTokenIntegrationTest.java`
+  - `/admin/compliance/users` without `X-Admin-Token` returns `401`.
+  - Same endpoint with valid token returns `200` and mapped user compliance payload.
+
+### JPA/Hibernate integration tests (`@DataJpaTest` + `@Transactional`)
+- Test DB mode: H2 in-memory with DDL auto create/drop and JSONB domain alias for entity compatibility.
+- Rollback policy: each test method runs in transaction and rolls back automatically on completion.
+- `server/src/test/java/io/rwa/server/wallet/UserWalletRepositoryJpaIntegrationTest.java`
+  - `UserRepository.findByComplianceStatus` 조회 정확성 검증.
+  - `WalletRepository.findByAddress` 저장/조회 매핑 검증.
+  - `wallets.address` unique 제약 위반 시 예외 발생 검증.
+- `server/src/test/java/io/rwa/server/publicdata/PublicDataRepositoryJpaIntegrationTest.java`
+  - `UnitRepository.findByClassIdOrderByUnitNoAsc` 정렬 조회 검증.
+  - `UnitRepository.findByClassIdAndUnitNo` 단건 조회 검증.
+  - `PropertyClassRepository.findByKaptCodeOrderByClassKeyAsc` 정렬 조회 검증.
+
 ## Implementation Notes (project decisions)
 - Admin auth mode: `X-Admin-Token` header
 - Deterministic IDs:
@@ -226,3 +262,11 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - 2026-02-17: Updated environment and local infra defaults for current setup.
   - Updated `server/.env` DB settings to Azure PostgreSQL endpoint (`giwapsqlserver.postgres.database.azure.com`) using provided administrator login credentials.
   - Updated local infra Postgres image to `postgres:17.7` in `infra/docker-compose.yml`.
+- 2026-02-17: Replaced placeholder tests with JUnit unit/web integration coverage for live server behaviors.
+  - Added `WalletServiceTest` and `TradeServiceTest` for core service logic and error branches.
+  - Added `AuthIdempotencyIntegrationTest` and `ComplianceAdminTokenIntegrationTest` for interceptor/filter/controller integration via MockMvc.
+  - Removed placeholder tests (`TradeBuyFallbackTest`, `IdempotencyIntegrationTest`, `OutboxRetrySchedulerTest`, `NonceLockConcurrencyTest`) and validated `./gradlew test` pass (`12/12`).
+- 2026-02-17: Added JPA/Hibernate repository integration tests with transactional rollback.
+  - Added H2 test runtime dependency in `server/build.gradle`.
+  - Added `UserWalletRepositoryJpaIntegrationTest` and `PublicDataRepositoryJpaIntegrationTest` using `@DataJpaTest` + `@Transactional`.
+  - Configured test datasource for JSONB-compatible entity DDL (`INIT=CREATE DOMAIN IF NOT EXISTS JSONB AS JSON`) and verified full test suite pass (`18/18`).
