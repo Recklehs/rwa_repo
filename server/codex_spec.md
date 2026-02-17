@@ -215,3 +215,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Implemented transactional outbox listeners (BEFORE_COMMIT persist, AFTER_COMMIT async publish) and retry scheduler (claim/send/complete).
   - Implemented Postgres advisory-lock nonce manager and `outbox_tx` orchestrator with receipt polling.
   - Implemented custodial wallet signup/encryption, compliance APIs, public-data import/query APIs, tokenize API, faucet/distribute APIs, trade list/buy APIs with on-chain listing fallback.
+- 2026-02-16: Added execution tooling and smoke scenario.
+  - Added Gradle Wrapper under `server/gradle/wrapper` and `server/gradlew*`.
+  - Added smoke script `server/scripts/smoke_e2e.sh` and usage guide `server/scripts/README.md`.
+  - Verified server module build/tests pass with wrapper (`./gradlew test`).
