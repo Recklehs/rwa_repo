@@ -8,8 +8,10 @@ Desktop.ini
 .env.*
 **/*.env
 **/*.env.*
+server/.env
 !.env.example
 !**/.env.example
+!server/.env.example
 *.pem
 *.key
 *.p12
@@ -54,6 +56,7 @@ build/
 *.war
 *.ear
 *.iml
+!server/gradle/wrapper/gradle-wrapper.jar
 
 # --- Server / module-specific generated dirs ---
 server/build/

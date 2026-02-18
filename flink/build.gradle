@@ -4,7 +4,11 @@ plugins {
 
 group = 'io.rwa'
 version = '0.0.1'
-sourceCompatibility = '17'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
 
 defaultTasks 'clean', 'build'
 

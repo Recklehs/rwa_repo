@@ -15,7 +15,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   postgres:
-    image: postgres:16
+    image: postgres:17.7
     environment:
       POSTGRES_USER: rwa
       POSTGRES_PASSWORD: rwa_password
