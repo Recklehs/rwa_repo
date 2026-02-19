@@ -54,9 +54,11 @@ public class SharedDeploymentLoader {
                 addresses.put(contractName, normalizeAddress(address));
             }
 
-            if (contracts.has("KYCRegistry")) {
-                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "KYCRegistry must not be referenced");
-            }
+            contracts.fieldNames().forEachRemaining((contractName) -> {
+                if (!REQUIRED_CONTRACTS.contains(contractName)) {
+                    throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected contract entry: " + contractName);
+                }
+            });
         } catch (IOException e) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to load deployment file: " + e.getMessage());
         }

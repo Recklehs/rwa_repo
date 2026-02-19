@@ -35,7 +35,7 @@ Or run the full sequence at once:
 npm run deploy:all:giwa
 ```
 
-This version does not enforce on-chain KYC allowlists.
+This version does not enforce on-chain allowlists.
 Compliance checks are expected to run in off-chain backend services.
 
 Bootstrap then enforces ownership handoff:

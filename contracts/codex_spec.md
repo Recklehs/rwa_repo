@@ -6,7 +6,7 @@ Last updated: 2026-02-15 (post-live deploy)
 
 ### Architecture decision
 - Compliance model is off-chain.
-- On-chain KYC allowlist enforcement is removed.
+- On-chain allowlist enforcement is removed.
 - Current production set is 5 contracts (not 6):
 1. `MockUSD`
 2. `PropertyRegistry`
@@ -21,10 +21,10 @@ Last updated: 2026-02-15 (post-live deploy)
 ## Delta vs Original Spec
 
 ### Removed from original
-- `KYCRegistry` contract.
-- `PropertyShare1155` transfer-time KYC checks.
+- Legacy on-chain allowlist contract.
+- `PropertyShare1155` transfer-time allowlist checks.
 - Bootstrap allowlist step:
-  - `setAllowed(market/treasury/issuer, true)`.
+  - legacy allowlist bootstrap call for market/treasury/issuer.
 
 ### Added/changed from original
 - `PropertyTokenizer.mintUnits` now rejects remint of already-minted token IDs via `TokenAlreadyMinted`.
@@ -56,7 +56,7 @@ Last updated: 2026-02-15 (post-live deploy)
 - URI pattern: `${baseURI}/${id}.json`
 - Owner-only `mintBatch`
 - Burn allowed by owner or token holder
-- No KYC transfer restriction in `_update`
+- No allowlist transfer restriction in `_update`
 - File: `contracts/contracts/PropertyShare1155.sol`
 
 ### 4) PropertyTokenizer.sol
@@ -169,7 +169,7 @@ Last updated: 2026-02-15 (post-live deploy)
 - `shared/abi/PropertyShare1155.json`
 - `shared/abi/PropertyTokenizer.json`
 - `shared/abi/FixedPriceMarketDvP.json`
-- Note: legacy `KYCRegistry.json` is removed during ABI export.
+- Note: legacy allowlist ABI json is removed during ABI export.
 
 ### Constants
 - `shared/config/constants.json`
@@ -182,15 +182,15 @@ Last updated: 2026-02-15 (post-live deploy)
 ## Integration Guidance (Server / Ingester / Flink)
 
 ### Must know before implementing downstream systems
-1. Do not depend on on-chain KYC reverts; enforce compliance in backend logic.
+1. Do not depend on on-chain allowlist reverts; enforce compliance in backend logic.
 2. Read addresses from `shared/deployments/giwa-sepolia.json`, not hardcoded values.
-3. Use ABIs from `shared/abi/*` only (no KYC ABI in current model).
+3. Use ABIs from `shared/abi/*` only (no legacy allowlist ABI in current model).
 4. Build event indexing from contract events (`Listed`, `Bought`, `Cancelled`, registry/tokenizer/share ownership+mint events) and maintain idempotency by tx hash + log index.
 
 ### Current gaps to schedule
 - Populate `shared/events/signatures.json`.
 - Align DB schema/indexing strategy in `shared/db/ddl.sql` with actual emitted events and identifiers.
-- Clean stale localhost artifacts that still include `KYCRegistry` key to avoid confusion in tooling.
+- Clean stale localhost artifacts that still include legacy allowlist keys to avoid confusion in tooling.
 
 ## Changelog (Condensed)
 
@@ -199,7 +199,7 @@ Last updated: 2026-02-15 (post-live deploy)
 - Hardhat 3 migration completed.
 
 ### 2026-02-14 to 2026-02-15
-- Migrated from on-chain KYC allowlist model to off-chain compliance model.
+- Migrated from on-chain allowlist model to off-chain compliance model.
 - Ownership handoff bootstrap stabilized.
 - Base URI handling and verify flow improved.
 

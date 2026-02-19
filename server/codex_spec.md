@@ -6,8 +6,8 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 ## 0) Baseline alignment (MUST)
 
 ### A) Compliance model
-- On-chain KYC allowlist enforcement is REMOVED.
-- Do NOT reference KYCRegistry anywhere.
+- On-chain allowlist enforcement is REMOVED.
+- Do NOT reference legacy allowlist contracts anywhere.
 - Backend must enforce compliance OFF-CHAIN before allowing user actions.
 - Contracts do not block transfers/listing/buying via on-chain allowlist.
 
@@ -27,7 +27,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 
 ### D) Runtime source of truth (MUST)
 - Contract addresses: `shared/deployments/giwa-sepolia.json`
-- Contract ABIs: `shared/abi/*.json` (no legacy KYC ABI)
+- Contract ABIs: `shared/abi/*.json` (no legacy allowlist ABI)
 - Constants: `shared/config/constants.json`
   - `SHARE_SCALE = 1e18`
   - `CONFIRMATIONS = 12`

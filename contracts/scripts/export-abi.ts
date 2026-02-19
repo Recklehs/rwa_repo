@@ -18,12 +18,6 @@ async function main(): Promise<void> {
   const outputDir = path.resolve(__dirname, "..", "..", "shared", "abi");
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const legacyKycAbiPath = path.join(outputDir, "KYCRegistry.json");
-  if (fs.existsSync(legacyKycAbiPath)) {
-    fs.rmSync(legacyKycAbiPath);
-    console.log(`Removed legacy ABI: ${legacyKycAbiPath}`);
-  }
-
   for (const contractName of CONTRACTS) {
     const artifact = await artifacts.readArtifact(contractName);
     const payload = {
