@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract PropertyRegistry is Ownable {
     struct ClassInfo {
@@ -12,16 +12,20 @@ contract PropertyRegistry is Ownable {
         uint64 issuedAt;
     }
 
-    mapping(bytes32 => ClassInfo) private classes;
+    uint8 public constant STATUS_INACTIVE = 0;
+    uint8 public constant STATUS_ACTIVE = 1;
+    uint8 public constant STATUS_PAUSED = 2;
 
-    event ClassRegistered(
-        bytes32 indexed classId,
-        uint256 baseTokenId,
-        uint32 unitCount,
-        bytes32 docHash
-    );
+    mapping(bytes32 classId => ClassInfo) private _classes;
+
+    event ClassRegistered(bytes32 indexed classId, uint256 baseTokenId, uint32 unitCount, bytes32 docHash);
     event DocHashUpdated(bytes32 indexed classId, bytes32 oldHash, bytes32 newHash);
     event ClassStatusChanged(bytes32 indexed classId, uint8 status);
+
+    error ClassAlreadyRegistered(bytes32 classId);
+    error ClassNotFound(bytes32 classId);
+    error InvalidUnitCount();
+    error InvalidStatus(uint8 status);
 
     constructor() Ownable(msg.sender) {}
 
@@ -32,18 +36,18 @@ contract PropertyRegistry is Ownable {
         uint256 baseTokenId,
         uint64 issuedAt
     ) external onlyOwner {
-        require(classId != bytes32(0), "PROPERTY_REGISTRY: ZERO_CLASS_ID");
-        require(unitCount > 0, "PROPERTY_REGISTRY: ZERO_UNIT_COUNT");
-        require(
-            classes[classId].baseTokenId == 0,
-            "PROPERTY_REGISTRY: CLASS_ALREADY_REGISTERED"
-        );
+        if (unitCount == 0) {
+            revert InvalidUnitCount();
+        }
+        if (_classes[classId].unitCount != 0) {
+            revert ClassAlreadyRegistered(classId);
+        }
 
-        classes[classId] = ClassInfo({
+        _classes[classId] = ClassInfo({
             docHash: docHash,
             unitCount: unitCount,
             baseTokenId: baseTokenId,
-            status: 1,
+            status: STATUS_ACTIVE,
             issuedAt: issuedAt
         });
 
@@ -51,19 +55,28 @@ contract PropertyRegistry is Ownable {
     }
 
     function setStatus(bytes32 classId, uint8 status) external onlyOwner {
-        require(classes[classId].baseTokenId != 0, "PROPERTY_REGISTRY: CLASS_NOT_FOUND");
-        classes[classId].status = status;
+        _requireClassExists(classId);
+        if (status > STATUS_PAUSED) {
+            revert InvalidStatus(status);
+        }
+        _classes[classId].status = status;
         emit ClassStatusChanged(classId, status);
     }
 
     function updateDocHash(bytes32 classId, bytes32 newDocHash) external onlyOwner {
-        require(classes[classId].baseTokenId != 0, "PROPERTY_REGISTRY: CLASS_NOT_FOUND");
-        bytes32 oldHash = classes[classId].docHash;
-        classes[classId].docHash = newDocHash;
+        _requireClassExists(classId);
+        bytes32 oldHash = _classes[classId].docHash;
+        _classes[classId].docHash = newDocHash;
         emit DocHashUpdated(classId, oldHash, newDocHash);
     }
 
     function getClass(bytes32 classId) external view returns (ClassInfo memory) {
-        return classes[classId];
+        return _classes[classId];
+    }
+
+    function _requireClassExists(bytes32 classId) private view {
+        if (_classes[classId].unitCount == 0) {
+            revert ClassNotFound(classId);
+        }
     }
 }

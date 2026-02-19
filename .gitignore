@@ -8,6 +8,10 @@ Desktop.ini
 .env.*
 **/*.env
 **/*.env.*
+server/.env
+!.env.example
+!**/.env.example
+!server/.env.example
 *.pem
 *.key
 *.p12
@@ -40,6 +44,7 @@ typechain/
 typechain-types/
 .hardhat/
 .openzeppelin/
+contracts/ignition/deployments/chain-*/
 
 # --- Java / Gradle ---
 .gradle/
@@ -51,6 +56,7 @@ build/
 *.war
 *.ear
 *.iml
+!server/gradle/wrapper/gradle-wrapper.jar
 
 # --- Server / module-specific generated dirs ---
 server/build/
@@ -90,3 +96,8 @@ docker-compose.override.yml
 **/application-secret.yml
 **/application-secret.yaml
 **/application-*.properties
+
+
+# Wallet outputs (never commit wallet artifacts)
+shared/wallets/**
+!shared/wallets/.gitkeep
