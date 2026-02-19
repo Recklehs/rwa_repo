@@ -3,7 +3,6 @@ package io.rwa.server.wallet;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
@@ -19,7 +18,6 @@ public class WalletEntity {
     @Column(name = "address", nullable = false, unique = true, length = 42)
     private String address;
 
-    @Lob
     @Column(name = "encrypted_privkey", nullable = false)
     private byte[] encryptedPrivkey;
 
