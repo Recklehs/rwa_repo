@@ -48,6 +48,14 @@ Ingester does NOT:
 - `GIWA_RPC_URL=https://sepolia-rpc.giwa.io`
 - `KAFKA_BOOTSTRAP_SERVERS=...`
 - `KAFKA_TOPIC=chain.logs.raw`
+- `KAFKA_SECURITY_PROTOCOL` (optional; ex: `SASL_SSL` for Azure Event Hubs Kafka)
+- `KAFKA_SASL_MECHANISM` (optional; ex: `PLAIN`)
+- `KAFKA_SASL_JAAS_CONFIG` (optional; Event Hubs connection string auth)
+- `KAFKA_CLIENT_DNS_LOOKUP` (optional; ex: `use_all_dns_ips`)
+- `KAFKA_REQUEST_TIMEOUT_MS=30000`
+- `KAFKA_DELIVERY_TIMEOUT_MS=120000`
+- `KAFKA_LINGER_MS=5`
+- `KAFKA_COMPRESSION_TYPE` (optional; ex: `gzip`)
 - `POLL_INTERVAL_MS=5000`
 - `MAX_BLOCK_RANGE=2000`
 - `STATE_STORE=postgres|file`
@@ -178,3 +186,7 @@ Ordering guidance:
   - Replaced fixed contract-event subscription logic with enabled-event catalog loading.
   - Added validation for contract/address/topic consistency against deployment and signature hash.
   - Added envelope metadata fields (`dedupKey`, `eventId`, `eventContract`, `eventSignature`, `eventTopic0`, `eventKnown`).
+- 2026-02-19: Added Kafka security/network env support for Azure Event Hubs compatibility.
+  - Added optional SASL/SSL producer settings (`KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_JAAS_CONFIG`, `KAFKA_CLIENT_DNS_LOOKUP`).
+  - Added producer timeout/tuning env settings (`KAFKA_REQUEST_TIMEOUT_MS`, `KAFKA_DELIVERY_TIMEOUT_MS`, `KAFKA_LINGER_MS`, `KAFKA_COMPRESSION_TYPE`).
+  - Updated `ingester/.env.example` with Event Hubs Kafka endpoint sample.

@@ -11,6 +11,14 @@ public record IngesterConfig(
     String network,
     String kafkaBootstrapServers,
     String kafkaTopic,
+    String kafkaSecurityProtocol,
+    String kafkaSaslMechanism,
+    String kafkaSaslJaasConfig,
+    String kafkaClientDnsLookup,
+    int kafkaRequestTimeoutMs,
+    int kafkaDeliveryTimeoutMs,
+    int kafkaLingerMs,
+    String kafkaCompressionType,
     long pollIntervalMs,
     int maxBlockRange,
     StateStoreType stateStoreType,
@@ -28,6 +36,14 @@ public record IngesterConfig(
         String network = envOrDefault(env, "NETWORK_NAME", "giwa-sepolia");
         String kafkaBootstrapServers = envOrDefault(env, "KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
         String kafkaTopic = envOrDefault(env, "KAFKA_TOPIC", "chain.logs.raw");
+        String kafkaSecurityProtocol = envOrDefault(env, "KAFKA_SECURITY_PROTOCOL", "");
+        String kafkaSaslMechanism = envOrDefault(env, "KAFKA_SASL_MECHANISM", "");
+        String kafkaSaslJaasConfig = envOrDefault(env, "KAFKA_SASL_JAAS_CONFIG", "");
+        String kafkaClientDnsLookup = envOrDefault(env, "KAFKA_CLIENT_DNS_LOOKUP", "");
+        int kafkaRequestTimeoutMs = parseInt(envOrDefault(env, "KAFKA_REQUEST_TIMEOUT_MS", "30000"), "KAFKA_REQUEST_TIMEOUT_MS");
+        int kafkaDeliveryTimeoutMs = parseInt(envOrDefault(env, "KAFKA_DELIVERY_TIMEOUT_MS", "120000"), "KAFKA_DELIVERY_TIMEOUT_MS");
+        int kafkaLingerMs = parseInt(envOrDefault(env, "KAFKA_LINGER_MS", "5"), "KAFKA_LINGER_MS");
+        String kafkaCompressionType = envOrDefault(env, "KAFKA_COMPRESSION_TYPE", "");
         long pollIntervalMs = parseLong(envOrDefault(env, "POLL_INTERVAL_MS", "5000"), "POLL_INTERVAL_MS");
         int maxBlockRange = parseInt(envOrDefault(env, "MAX_BLOCK_RANGE", "2000"), "MAX_BLOCK_RANGE");
         StateStoreType stateStoreType = parseStateStoreType(envOrDefault(env, "STATE_STORE", "file"));
@@ -46,6 +62,15 @@ public record IngesterConfig(
         if (chainId <= 0) {
             throw new IllegalArgumentException("GIWA_CHAIN_ID must be > 0");
         }
+        if (kafkaRequestTimeoutMs <= 0) {
+            throw new IllegalArgumentException("KAFKA_REQUEST_TIMEOUT_MS must be > 0");
+        }
+        if (kafkaDeliveryTimeoutMs <= 0) {
+            throw new IllegalArgumentException("KAFKA_DELIVERY_TIMEOUT_MS must be > 0");
+        }
+        if (kafkaLingerMs < 0) {
+            throw new IllegalArgumentException("KAFKA_LINGER_MS must be >= 0");
+        }
         if (stateStoreType == StateStoreType.POSTGRES && (dbUrl.isBlank() || dbUser.isBlank())) {
             throw new IllegalArgumentException("STATE_STORE=postgres requires DB_URL and DB_USER");
         }
@@ -57,6 +82,14 @@ public record IngesterConfig(
             network,
             kafkaBootstrapServers,
             kafkaTopic,
+            kafkaSecurityProtocol,
+            kafkaSaslMechanism,
+            kafkaSaslJaasConfig,
+            kafkaClientDnsLookup,
+            kafkaRequestTimeoutMs,
+            kafkaDeliveryTimeoutMs,
+            kafkaLingerMs,
+            kafkaCompressionType,
             pollIntervalMs,
             maxBlockRange,
             stateStoreType,
