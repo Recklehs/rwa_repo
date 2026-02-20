@@ -60,6 +60,7 @@ build/
 
 # --- Server / module-specific generated dirs ---
 server/build/
+server/bin/
 ingester/build/
 flink/build/
 
