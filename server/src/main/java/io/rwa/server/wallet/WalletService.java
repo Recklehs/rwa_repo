@@ -3,9 +3,12 @@ package io.rwa.server.wallet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.common.ApiException;
 import io.rwa.server.outbox.OutboxEventPublisher;
+import io.rwa.server.tx.GasManagerService;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.web3j.crypto.ECKeyPair;
@@ -15,10 +18,13 @@ import org.web3j.utils.Numeric;
 @Service
 public class WalletService {
 
+    private static final Logger log = LoggerFactory.getLogger(WalletService.class);
+
     private final UserRepository userRepository;
     private final WalletRepository walletRepository;
     private final WalletCryptoService walletCryptoService;
     private final OutboxEventPublisher outboxEventPublisher;
+    private final GasManagerService gasManagerService;
     private final ObjectMapper objectMapper;
 
     public WalletService(
@@ -26,12 +32,14 @@ public class WalletService {
         WalletRepository walletRepository,
         WalletCryptoService walletCryptoService,
         OutboxEventPublisher outboxEventPublisher,
+        GasManagerService gasManagerService,
         ObjectMapper objectMapper
     ) {
         this.userRepository = userRepository;
         this.walletRepository = walletRepository;
         this.walletCryptoService = walletCryptoService;
         this.outboxEventPublisher = outboxEventPublisher;
+        this.gasManagerService = gasManagerService;
         this.objectMapper = objectMapper;
     }
 
@@ -69,6 +77,12 @@ public class WalletService {
                     .put("userId", userId.toString())
                     .put("address", address.toLowerCase())
             );
+
+            try {
+                gasManagerService.ensureInitialGasGranted(address.toLowerCase());
+            } catch (Exception e) {
+                log.warn("Initial gas grant failed after signup. userId={} address={} reason={}", userId, address.toLowerCase(), e.getMessage());
+            }
 
             return new SignupResult(userId, address.toLowerCase());
         } catch (ApiException e) {

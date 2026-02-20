@@ -18,11 +18,15 @@ import org.web3j.crypto.TransactionEncoder;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.request.Transaction;
+import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
 import org.web3j.protocol.core.methods.response.EthBlockNumber;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthGasPrice;
+import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthMaxPriorityFeePerGas;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.utils.Numeric;
 
@@ -49,6 +53,19 @@ public class Web3FunctionService {
         }
     }
 
+    public BigInteger getBalance(String address, DefaultBlockParameterName blockParameterName) {
+        try {
+            EthGetBalance balance = web3j.ethGetBalance(address, blockParameterName).send();
+            return balance.getBalance();
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to read balance: " + e.getMessage());
+        }
+    }
+
+    public BigInteger getPendingBalance(String address) {
+        return getBalance(address, DefaultBlockParameterName.PENDING);
+    }
+
     public BigInteger getGasPrice() {
         try {
             EthGasPrice gasPrice = web3j.ethGasPrice().send();
@@ -58,31 +75,93 @@ public class Web3FunctionService {
         }
     }
 
-    public String signFunctionTransaction(
+    public BigInteger getMaxPriorityFeePerGas() {
+        try {
+            EthMaxPriorityFeePerGas maxPriority = web3j.ethMaxPriorityFeePerGas().send();
+            return maxPriority.getMaxPriorityFeePerGas();
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to read max priority fee: " + e.getMessage());
+        }
+    }
+
+    public BigInteger getLatestBaseFeePerGas() {
+        try {
+            EthBlock latest = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send();
+            EthBlock.Block block = latest.getBlock();
+            if (block == null || block.getBaseFeePerGasRaw() == null) {
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "Latest block does not include baseFeePerGas");
+            }
+            return block.getBaseFeePerGas();
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to read latest base fee: " + e.getMessage());
+        }
+    }
+
+    public BigInteger estimateGas(Transaction request) {
+        try {
+            EthEstimateGas estimated = web3j.ethEstimateGas(request).send();
+            if (estimated.hasError()) {
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "eth_estimateGas failed: " + estimated.getError().getMessage());
+            }
+            return estimated.getAmountUsed();
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to estimate gas: " + e.getMessage());
+        }
+    }
+
+    public String signEip1559Transaction(
         String privateKeyHex,
         String toAddress,
-        Function function,
+        String data,
+        BigInteger value,
         BigInteger nonce,
-        BigInteger gasPrice,
-        BigInteger gasLimit
+        BigInteger gasLimit,
+        BigInteger maxPriorityFeePerGas,
+        BigInteger maxFeePerGas
     ) {
         try {
-            String data = FunctionEncoder.encode(function);
-
             RawTransaction raw = RawTransaction.createTransaction(
+                properties.getGiwaChainId(),
                 nonce,
-                gasPrice,
                 gasLimit,
                 toAddress,
-                BigInteger.ZERO,
-                data
+                value,
+                data == null ? "0x" : data,
+                maxPriorityFeePerGas,
+                maxFeePerGas
             );
             Credentials credentials = Credentials.create(privateKeyHex);
-            byte[] signed = TransactionEncoder.signMessage(raw, properties.getGiwaChainId(), credentials);
+            byte[] signed = TransactionEncoder.signMessage(raw, credentials);
             return Numeric.toHexString(signed);
         } catch (Exception e) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to sign raw tx: " + e.getMessage());
         }
+    }
+
+    public String signFunctionTransactionEip1559(
+        String privateKeyHex,
+        String toAddress,
+        Function function,
+        BigInteger nonce,
+        BigInteger gasLimit,
+        BigInteger maxPriorityFeePerGas,
+        BigInteger maxFeePerGas
+    ) {
+        String data = FunctionEncoder.encode(function);
+        return signEip1559Transaction(
+            privateKeyHex,
+            toAddress,
+            data,
+            BigInteger.ZERO,
+            nonce,
+            gasLimit,
+            maxPriorityFeePerGas,
+            maxFeePerGas
+        );
     }
 
     public SendRawResult sendSignedRawTransaction(String rawHex) {
