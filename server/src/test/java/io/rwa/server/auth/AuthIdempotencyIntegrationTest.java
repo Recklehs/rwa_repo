@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -60,7 +61,11 @@ class AuthIdempotencyIntegrationTest {
         // given: Idempotency-Key 헤더 없이 signup 요청을 보낸다.
         // when: /auth/signup 엔드포인트를 호출한다.
         // then: 필수 키 누락으로 400 응답을 반환한다.
-        mockMvc.perform(post("/auth/signup"))
+        mockMvc.perform(
+            post("/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"externalUserId\":\"ext-user-0\"}")
+        )
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.status").value(400))
             .andExpect(jsonPath("$.message").value("Idempotency-Key required"));
@@ -72,13 +77,22 @@ class AuthIdempotencyIntegrationTest {
         // given: 신규 idempotency key로 첫 signup 요청이 성공하도록 목 동작을 준비한다.
         UUID userId = UUID.fromString("44389f5e-40f0-48e7-a6fb-1987d7e27d37");
         when(idempotencyService.tryInsertInProgress(anyString(), eq("signup-k1"), anyString())).thenReturn(true);
-        when(walletService.signup()).thenReturn(new SignupResult(userId, "0xabc"));
+        when(walletService.signup("ext-user-1", "MEMBER"))
+            .thenReturn(new SignupResult(userId, "0xabc", "ext-user-1", "MEMBER", true));
 
         // when: /auth/signup 요청을 전송한다.
-        mockMvc.perform(post("/auth/signup").header("Idempotency-Key", "signup-k1"))
+        mockMvc.perform(
+            post("/auth/signup")
+                .header("Idempotency-Key", "signup-k1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"externalUserId\":\"ext-user-1\",\"provider\":\"MEMBER\"}")
+        )
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.userId").value(userId.toString()))
-            .andExpect(jsonPath("$.address").value("0xabc"));
+            .andExpect(jsonPath("$.address").value("0xabc"))
+            .andExpect(jsonPath("$.externalUserId").value("ext-user-1"))
+            .andExpect(jsonPath("$.provider").value("MEMBER"))
+            .andExpect(jsonPath("$.created").value(true));
 
         // then: 응답 본문이 idempotency completed 레코드로 저장된다.
         ArgumentCaptor<JsonNode> responseBodyCaptor = ArgumentCaptor.forClass(JsonNode.class);
@@ -86,13 +100,21 @@ class AuthIdempotencyIntegrationTest {
         JsonNode responseBody = responseBodyCaptor.getValue();
         assertThat(responseBody.path("userId").asText()).isEqualTo(userId.toString());
         assertThat(responseBody.path("address").asText()).isEqualTo("0xabc");
+        assertThat(responseBody.path("externalUserId").asText()).isEqualTo("ext-user-1");
+        assertThat(responseBody.path("provider").asText()).isEqualTo("MEMBER");
+        assertThat(responseBody.path("created").asBoolean()).isTrue();
     }
 
     @Test
     @DisplayName("signup 재요청은 COMPLETED idempotency 응답을 재사용하고 비즈니스 로직을 재실행하지 않는다")
     void shouldReturnStoredResponseWhenIdempotencyRecordIsAlreadyCompleted() throws Exception {
         // given: 동일 key에 대한 COMPLETED idempotency 레코드(캐시 응답)가 존재하도록 준비한다.
-        JsonNode cachedBody = objectMapper.createObjectNode().put("userId", "cached-user").put("address", "0xcached");
+        JsonNode cachedBody = objectMapper.createObjectNode()
+            .put("userId", "cached-user")
+            .put("address", "0xcached")
+            .put("externalUserId", "ext-cached")
+            .put("provider", "MEMBER")
+            .put("created", false);
         when(idempotencyService.tryInsertInProgress(anyString(), eq("signup-k2"), anyString())).thenAnswer(invocation -> {
             String requestHash = invocation.getArgument(2, String.class);
             when(idempotencyService.find(anyString(), eq("signup-k2"))).thenReturn(Optional.of(
@@ -111,13 +133,21 @@ class AuthIdempotencyIntegrationTest {
         });
 
         // when: 동일 key로 /auth/signup을 다시 호출한다.
-        mockMvc.perform(post("/auth/signup").header("Idempotency-Key", "signup-k2"))
+        mockMvc.perform(
+            post("/auth/signup")
+                .header("Idempotency-Key", "signup-k2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"externalUserId\":\"ext-cached\",\"provider\":\"MEMBER\"}")
+        )
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.userId").value("cached-user"))
-            .andExpect(jsonPath("$.address").value("0xcached"));
+            .andExpect(jsonPath("$.address").value("0xcached"))
+            .andExpect(jsonPath("$.externalUserId").value("ext-cached"))
+            .andExpect(jsonPath("$.provider").value("MEMBER"))
+            .andExpect(jsonPath("$.created").value(false));
 
         // then: 저장된 응답을 재사용하고 signup 비즈니스 로직은 재실행하지 않는다.
-        verify(walletService, never()).signup();
+        verify(walletService, never()).signup(anyString(), anyString());
         verify(idempotencyService, never()).markCompleted(anyString(), anyString(), anyInt(), any(JsonNode.class));
     }
 }
