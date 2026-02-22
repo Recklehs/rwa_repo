@@ -2,7 +2,9 @@ package io.rwa.server.auth;
 
 import io.rwa.server.wallet.SignupResult;
 import io.rwa.server.wallet.WalletService;
+import jakarta.validation.Valid;
 import java.util.Map;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -16,11 +18,14 @@ public class AuthController {
     }
 
     @PostMapping("/auth/signup")
-    public Map<String, Object> signup() {
-        SignupResult result = walletService.signup();
+    public Map<String, Object> signup(@Valid @RequestBody AuthSignupRequest request) {
+        SignupResult result = walletService.signup(request.externalUserId(), request.provider());
         return Map.of(
             "userId", result.userId(),
-            "address", result.address()
+            "address", result.address(),
+            "externalUserId", result.externalUserId(),
+            "provider", result.provider(),
+            "created", result.created()
         );
     }
 }

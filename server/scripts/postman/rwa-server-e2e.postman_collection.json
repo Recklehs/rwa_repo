@@ -1,0 +1,991 @@
+{
+  "info": {
+    "_postman_id": "4975dce6-4c5f-4c7d-9d2b-5f179d61ef3f",
+    "name": "RWA Server E2E (externalUserId)",
+    "description": "Server API end-to-end flow for signup(externalUserId), compliance, tokenize, trade, and lookup APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const mutatingMethods = [\"POST\", \"PUT\", \"PATCH\", \"DELETE\"];",
+          "if (mutatingMethods.includes(pm.request.method)) {",
+          "  const key = `idem-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;",
+          "  pm.variables.set(\"idempotencyKey\", key);",
+          "  pm.request.headers.upsert({ key: \"Idempotency-Key\", value: key });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "provider",
+      "value": "MEMBER"
+    },
+    {
+      "key": "sellerExternalUserId",
+      "value": "pm-seller-001"
+    },
+    {
+      "key": "buyerExternalUserId",
+      "value": "pm-buyer-001"
+    },
+    {
+      "key": "kaptCode",
+      "value": "PM-KAPT-001"
+    },
+    {
+      "key": "shareScale",
+      "value": "1000000000000000000"
+    },
+    {
+      "key": "unitPrice",
+      "value": "100000000000000000000"
+    },
+    {
+      "key": "musdFaucetAmount",
+      "value": "1000000000000000000000"
+    },
+    {
+      "key": "musdFaucetAmountHuman",
+      "value": "1000"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "sellerUserId",
+      "value": ""
+    },
+    {
+      "key": "buyerUserId",
+      "value": ""
+    },
+    {
+      "key": "sellerAddress",
+      "value": ""
+    },
+    {
+      "key": "buyerAddress",
+      "value": ""
+    },
+    {
+      "key": "classId",
+      "value": ""
+    },
+    {
+      "key": "unitId",
+      "value": ""
+    },
+    {
+      "key": "tokenId",
+      "value": ""
+    },
+    {
+      "key": "listingId",
+      "value": ""
+    },
+    {
+      "key": "outboxId",
+      "value": ""
+    },
+    {
+      "key": "lastEndpoint",
+      "value": "POST /trade/buy"
+    },
+    {
+      "key": "lastIdempotencyKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0) Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "서버가 정상 기동되었는지 확인합니다. status=UP 응답을 기대합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "description": "서버가 정상 기동되었는지 확인합니다. status=UP 응답을 기대합니다."
+    },
+    {
+      "name": "1) Signup Seller",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"externalUserId\": \"{{sellerExternalUserId}}\",\n  \"provider\": \"{{provider}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/signup",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "signup"
+          ]
+        },
+        "description": "판매자용 외부회원 ID로 가입을 요청하고, 응답의 userId/address를 컬렉션 변수(sellerUserId/sellerAddress)에 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set(\"sellerUserId\", j.userId);",
+              "pm.collectionVariables.set(\"sellerAddress\", j.address);",
+              "pm.test(\"signup created user\", function () {",
+              "  pm.expect(j.externalUserId).to.eql(pm.collectionVariables.get(\"sellerExternalUserId\"));",
+              "  pm.expect(j.provider).to.eql(pm.collectionVariables.get(\"provider\"));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "description": "판매자용 외부회원 ID로 가입을 요청하고, 응답의 userId/address를 컬렉션 변수(sellerUserId/sellerAddress)에 저장합니다."
+    },
+    {
+      "name": "2) Signup Buyer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"externalUserId\": \"{{buyerExternalUserId}}\",\n  \"provider\": \"{{provider}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/signup",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "signup"
+          ]
+        },
+        "description": "구매자용 외부회원 ID로 가입을 요청하고, 응답의 userId/address를 컬렉션 변수(buyerUserId/buyerAddress)에 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set(\"buyerUserId\", j.userId);",
+              "pm.collectionVariables.set(\"buyerAddress\", j.address);"
+            ]
+          }
+        }
+      ],
+      "description": "구매자용 외부회원 ID로 가입을 요청하고, 응답의 userId/address를 컬렉션 변수(buyerUserId/buyerAddress)에 저장합니다."
+    },
+    {
+      "name": "3) Admin Lookup Seller By External",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/users/by-external?externalUserId={{sellerExternalUserId}}&provider={{provider}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "users",
+            "by-external"
+          ],
+          "query": [
+            {
+              "key": "externalUserId",
+              "value": "{{sellerExternalUserId}}"
+            },
+            {
+              "key": "provider",
+              "value": "{{provider}}"
+            }
+          ]
+        },
+        "description": "admin API로 externalUserId 매핑을 조회해 1단계에서 생성한 판매자 userId와 일치하는지 검증합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "pm.test(\"lookup returns seller\", function () {",
+              "  pm.expect(j.userId).to.eql(pm.collectionVariables.get(\"sellerUserId\"));",
+              "  pm.expect(j.externalUserId).to.eql(pm.collectionVariables.get(\"sellerExternalUserId\"));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "description": "admin API로 externalUserId 매핑을 조회해 1단계에서 생성한 판매자 userId와 일치하는지 검증합니다."
+    },
+    {
+      "name": "4) Approve Seller",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{sellerUserId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/compliance/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "compliance",
+            "approve"
+          ]
+        },
+        "description": "판매자 compliance 상태를 APPROVED로 변경합니다. 이후 거래(list) 가능 상태를 만드는 단계입니다."
+      },
+      "description": "판매자 compliance 상태를 APPROVED로 변경합니다. 이후 거래(list) 가능 상태를 만드는 단계입니다."
+    },
+    {
+      "name": "5) Approve Buyer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{buyerUserId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/compliance/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "compliance",
+            "approve"
+          ]
+        },
+        "description": "구매자 compliance 상태를 APPROVED로 변경합니다. 이후 거래(buy) 가능 상태를 만드는 단계입니다."
+      },
+      "description": "구매자 compliance 상태를 APPROVED로 변경합니다. 이후 거래(buy) 가능 상태를 만드는 단계입니다."
+    },
+    {
+      "name": "6) Import Complex",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"rawItemJson\": {\n    \"kaptCode\": \"{{kaptCode}}\",\n    \"kaptName\": \"Postman Smoke Apartment\",\n    \"kaptAddr\": \"Seoul\",\n    \"doroJuso\": \"Postman-ro 1\",\n    \"hoCnt\": 2,\n    \"kaptMparea60\": 1,\n    \"kaptMparea85\": 1,\n    \"kaptMparea135\": 0,\n    \"kaptMparea136\": 0\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/complexes/import",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "complexes",
+            "import"
+          ]
+        },
+        "description": "테스트용 단지(rawItemJson)를 import하여 classes/units 생성의 기준 데이터를 준비합니다."
+      },
+      "description": "테스트용 단지(rawItemJson)를 import하여 classes/units 생성의 기준 데이터를 준비합니다."
+    },
+    {
+      "name": "7) Get Classes",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/complexes/{{kaptCode}}/classes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "complexes",
+            "{{kaptCode}}",
+            "classes"
+          ]
+        },
+        "description": "import된 단지의 클래스 목록을 조회하고 첫 classId를 컬렉션 변수(classId)로 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const arr = pm.response.json();",
+              "pm.expect(arr.length).to.be.greaterThan(0);",
+              "pm.collectionVariables.set(\"classId\", arr[0].classId);"
+            ]
+          }
+        }
+      ],
+      "description": "import된 단지의 클래스 목록을 조회하고 첫 classId를 컬렉션 변수(classId)로 저장합니다."
+    },
+    {
+      "name": "8) Tokenize Class",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"chunkSize\": 100\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/classes/{{classId}}/tokenize",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "classes",
+            "{{classId}}",
+            "tokenize"
+          ]
+        },
+        "description": "선택된 classId를 토큰화합니다. 응답 outboxIds[0]를 outboxId 변수에 저장해 체인 처리 상태를 추적합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "if (Array.isArray(j.outboxIds) && j.outboxIds.length > 0) {",
+              "  pm.collectionVariables.set(\"outboxId\", j.outboxIds[0]);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "description": "선택된 classId를 토큰화합니다. 응답 outboxIds[0]를 outboxId 변수에 저장해 체인 처리 상태를 추적합니다."
+    },
+    {
+      "name": "9) Get Outbox By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tx/outbox/{{outboxId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tx",
+            "outbox",
+            "{{outboxId}}"
+          ]
+        },
+        "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+      },
+      "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+    },
+    {
+      "name": "10) Get Units",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/classes/{{classId}}/units",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "classes",
+            "{{classId}}",
+            "units"
+          ]
+        },
+        "description": "classId의 unit 목록을 조회하고 unitId/tokenId를 다음 단계용 변수로 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const arr = pm.response.json();",
+              "pm.expect(arr.length).to.be.greaterThan(0);",
+              "pm.collectionVariables.set(\"unitId\", arr[0].unitId);",
+              "if (arr[0].tokenId !== null && arr[0].tokenId !== undefined) {",
+              "  pm.collectionVariables.set(\"tokenId\", String(arr[0].tokenId));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "description": "classId의 unit 목록을 조회하고 unitId/tokenId를 다음 단계용 변수로 저장합니다."
+    },
+    {
+      "name": "11) Faucet mUSD (Buyer)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"toUserId\": \"{{buyerUserId}}\",\n  \"amountHuman\": {{musdFaucetAmountHuman}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/faucet/musd",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "faucet",
+            "musd"
+          ]
+        },
+        "description": "구매자에게 거래 대금으로 사용할 mUSD를 지급합니다. amountHuman(사람 단위, 예: 1000) 또는 amount(raw 1e18 단위) 중 하나를 전달할 수 있습니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j.outboxId) { pm.collectionVariables.set(\"outboxId\", j.outboxId); }"
+            ]
+          }
+        }
+      ],
+      "description": "구매자에게 거래 대금으로 사용할 mUSD를 지급합니다. amountHuman(사람 단위, 예: 1000) 또는 amount(raw 1e18 단위) 중 하나를 전달할 수 있습니다."
+    },
+    {
+      "name": "12) Get Outbox By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tx/outbox/{{outboxId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tx",
+            "outbox",
+            "{{outboxId}}"
+          ]
+        },
+        "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+      },
+      "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+    },
+    {
+      "name": "13) Distribute Shares (Seller)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Admin-Token",
+            "value": "{{adminToken}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"toUserId\": \"{{sellerUserId}}\",\n  \"unitId\": \"{{unitId}}\",\n  \"amount\": {{shareScale}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/distribute/shares",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "admin",
+            "distribute",
+            "shares"
+          ]
+        },
+        "description": "판매자에게 share(ERC-1155)를 분배합니다. 응답 outboxId를 저장해 MINED 여부를 추적합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j.outboxId) { pm.collectionVariables.set(\"outboxId\", j.outboxId); }"
+            ]
+          }
+        }
+      ],
+      "description": "판매자에게 share(ERC-1155)를 분배합니다. 응답 outboxId를 저장해 MINED 여부를 추적합니다."
+    },
+    {
+      "name": "14) Get Outbox By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tx/outbox/{{outboxId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tx",
+            "outbox",
+            "{{outboxId}}"
+          ]
+        },
+        "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+      },
+      "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+    },
+    {
+      "name": "15) Trade List",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sellerUserId\": \"{{sellerUserId}}\",\n  \"unitId\": \"{{unitId}}\",\n  \"amount\": {{shareScale}},\n  \"unitPrice\": {{unitPrice}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/trade/list",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "list"
+          ]
+        },
+        "description": "판매자가 unit을 매도 등록(list)합니다. 마지막 outboxId를 저장해 체인 반영 상태를 추적합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (Array.isArray(j.outboxIds) && j.outboxIds.length > 0) {",
+              "  pm.collectionVariables.set(\"outboxId\", j.outboxIds[j.outboxIds.length - 1]);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "description": "판매자가 unit을 매도 등록(list)합니다. 마지막 outboxId를 저장해 체인 반영 상태를 추적합니다."
+    },
+    {
+      "name": "16) Get Outbox By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tx/outbox/{{outboxId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tx",
+            "outbox",
+            "{{outboxId}}"
+          ]
+        },
+        "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+      },
+      "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+    },
+    {
+      "name": "17) Get Market Listings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/market/listings?classId={{classId}}&status=ACTIVE",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "market",
+            "listings"
+          ],
+          "query": [
+            {
+              "key": "classId",
+              "value": "{{classId}}"
+            },
+            {
+              "key": "status",
+              "value": "ACTIVE"
+            }
+          ]
+        },
+        "description": "read-model에서 ACTIVE listing을 조회하고 첫 listingId를 변수로 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const arr = pm.response.json();",
+              "pm.expect(arr.length).to.be.greaterThan(0);",
+              "pm.collectionVariables.set(\"listingId\", String(arr[0].id));"
+            ]
+          }
+        }
+      ],
+      "description": "read-model에서 ACTIVE listing을 조회하고 첫 listingId를 변수로 저장합니다."
+    },
+    {
+      "name": "18) Trade Buy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"buyerUserId\": \"{{buyerUserId}}\",\n  \"listingId\": {{listingId}},\n  \"amount\": {{shareScale}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/trade/buy",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "buy"
+          ]
+        },
+        "description": "구매자가 listingId 기준으로 매수(buy)합니다. outboxId와 마지막 idempotency 정보(lastEndpoint/lastIdempotencyKey)를 저장합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (Array.isArray(j.outboxIds) && j.outboxIds.length > 0) {",
+              "  pm.collectionVariables.set(\"outboxId\", j.outboxIds[j.outboxIds.length - 1]);",
+              "}",
+              "pm.collectionVariables.set(\"lastEndpoint\", \"POST /trade/buy\");",
+              "pm.collectionVariables.set(\"lastIdempotencyKey\", pm.request.headers.get(\"Idempotency-Key\"));"
+            ]
+          }
+        }
+      ],
+      "description": "구매자가 listingId 기준으로 매수(buy)합니다. outboxId와 마지막 idempotency 정보(lastEndpoint/lastIdempotencyKey)를 저장합니다."
+    },
+    {
+      "name": "19) Get Outbox By ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tx/outbox/{{outboxId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tx",
+            "outbox",
+            "{{outboxId}}"
+          ]
+        },
+        "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+      },
+      "description": "현재 outboxId의 트랜잭션 상태를 조회합니다. status가 MINED가 될 때까지 필요시 재호출합니다."
+    },
+    {
+      "name": "20) Seller Holdings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/users/{{sellerUserId}}/holdings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "{{sellerUserId}}",
+            "holdings"
+          ]
+        },
+        "description": "거래 이후 판매자 잔고 변화를 확인합니다."
+      },
+      "description": "거래 이후 판매자 잔고 변화를 확인합니다."
+    },
+    {
+      "name": "21) Buyer Holdings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/users/{{buyerUserId}}/holdings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "{{buyerUserId}}",
+            "holdings"
+          ]
+        },
+        "description": "거래 이후 구매자 잔고 변화를 확인합니다."
+      },
+      "description": "거래 이후 구매자 잔고 변화를 확인합니다."
+    },
+    {
+      "name": "22) Token Holders",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tokens/{{tokenId}}/holders?limit=100",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tokens",
+            "{{tokenId}}",
+            "holders"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "description": "tokenId 기준 홀더 분포를 조회해 잔고 반영 결과를 확인합니다."
+      },
+      "description": "tokenId 기준 홀더 분포를 조회해 잔고 반영 결과를 확인합니다."
+    },
+    {
+      "name": "23) Idempotency Status (Last Trade Buy)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/idempotency/status?endpoint={{lastEndpoint}}&key={{lastIdempotencyKey}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "idempotency",
+            "status"
+          ],
+          "query": [
+            {
+              "key": "endpoint",
+              "value": "{{lastEndpoint}}"
+            },
+            {
+              "key": "key",
+              "value": "{{lastIdempotencyKey}}"
+            }
+          ]
+        },
+        "description": "마지막 buy 요청의 idempotency 레코드를 조회해 COMPLETED/응답 재사용 여부를 확인합니다."
+      },
+      "description": "마지막 buy 요청의 idempotency 레코드를 조회해 COMPLETED/응답 재사용 여부를 확인합니다."
+    },
+    {
+      "name": "24) Issued Tokens (All)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tokens",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tokens"
+          ]
+        },
+        "description": "현재 서버 DB 기준으로 발행 완료된 전체 토큰(unit tokenId not null) 목록을 조회합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const arr = pm.response.json();",
+              "pm.test(\"array response\", function () { pm.expect(Array.isArray(arr)).to.eql(true); });",
+              "if (arr.length > 0 && arr[0].tokenId !== null && arr[0].tokenId !== undefined) {",
+              "  pm.collectionVariables.set(\"tokenId\", String(arr[0].tokenId));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "description": "현재 서버 DB 기준으로 발행 완료된 전체 토큰(unit tokenId not null) 목록을 조회합니다."
+    }
+  ]
+}

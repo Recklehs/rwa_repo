@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.ColumnTransformer;
 
 @Entity
 @Table(name = "outbox_tx")
@@ -40,6 +41,7 @@ public class OutboxTxEntity {
     private String txType;
 
     @Column(name = "payload", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String payload;
 
     @Column(name = "last_error")

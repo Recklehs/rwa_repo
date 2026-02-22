@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.common.ApiException;
 import io.rwa.server.outbox.OutboxEventPublisher;
 import io.rwa.server.tx.GasManagerService;
+import java.sql.SQLException;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.BadSqlGrammarException;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
 class WalletServiceTest {
@@ -33,6 +38,9 @@ class WalletServiceTest {
     private WalletRepository walletRepository;
 
     @Mock
+    private UserExternalLinkRepository userExternalLinkRepository;
+
+    @Mock
     private WalletCryptoService walletCryptoService;
 
     @Mock
@@ -41,6 +49,9 @@ class WalletServiceTest {
     @Mock
     private GasManagerService gasManagerService;
 
+    @Mock
+    private NamedParameterJdbcTemplate jdbcTemplate;
+
     private WalletService walletService;
 
     @BeforeEach
@@ -48,10 +59,12 @@ class WalletServiceTest {
         walletService = new WalletService(
             userRepository,
             walletRepository,
+            userExternalLinkRepository,
             walletCryptoService,
             outboxEventPublisher,
             gasManagerService,
-            new ObjectMapper()
+            new ObjectMapper(),
+            jdbcTemplate
         );
     }
 
@@ -60,28 +73,24 @@ class WalletServiceTest {
     void signupShouldPersistUserAndWalletAndPublishEvent() {
         // given: signup 수행에 필요한 암호화/저장 목 동작을 준비한다.
         UUID userId = UUID.fromString("0199587d-78f9-7000-8000-000000000001");
-        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> {
-            UserEntity entity = invocation.getArgument(0);
-            entity.setUserId(userId);
-            return entity;
-        });
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-user-1"))
+            .thenReturn(Optional.empty());
+        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+            .thenReturn(userId);
         when(walletCryptoService.encryptPrivateKey(any())).thenReturn(new byte[] { 1, 2, 3 });
         when(walletRepository.save(any(WalletEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userExternalLinkRepository.save(any(UserExternalLinkEntity.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
 
         // when: 신규 가입을 실행한다.
-        SignupResult result = walletService.signup();
+        SignupResult result = walletService.signup("ext-user-1", null);
 
         // then: 사용자/지갑 저장과 outbox 이벤트 발행이 기대한 값으로 수행된다.
         ArgumentCaptor<String> privateKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(walletCryptoService).encryptPrivateKey(privateKeyCaptor.capture());
         assertThat(privateKeyCaptor.getValue()).matches("^[0-9a-fA-F]{64}$");
-        ArgumentCaptor<UserEntity> userCaptor = ArgumentCaptor.forClass(UserEntity.class);
-        verify(userRepository).save(userCaptor.capture());
-        UserEntity savedUser = userCaptor.getValue();
         assertThat(result.userId()).isEqualTo(userId);
-        assertThat(savedUser.getCreatedAt()).isNotNull();
-        assertThat(savedUser.getComplianceStatus()).isEqualTo(ComplianceStatus.PENDING);
-        assertThat(savedUser.getComplianceUpdatedAt()).isNotNull();
+        verify(jdbcTemplate).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class));
 
         ArgumentCaptor<WalletEntity> walletCaptor = ArgumentCaptor.forClass(WalletEntity.class);
         verify(walletRepository).save(walletCaptor.capture());
@@ -92,6 +101,14 @@ class WalletServiceTest {
         assertThat(savedWallet.getEncryptedPrivkey()).containsExactly((byte) 1, (byte) 2, (byte) 3);
         assertThat(savedWallet.getEncVersion()).isEqualTo(1);
         assertThat(savedWallet.getCreatedAt()).isNotNull();
+
+        ArgumentCaptor<UserExternalLinkEntity> linkCaptor = ArgumentCaptor.forClass(UserExternalLinkEntity.class);
+        verify(userExternalLinkRepository).save(linkCaptor.capture());
+        UserExternalLinkEntity savedLink = linkCaptor.getValue();
+        assertThat(savedLink.getUserId()).isEqualTo(userId);
+        assertThat(savedLink.getProvider()).isEqualTo("MEMBER");
+        assertThat(savedLink.getExternalUserId()).isEqualTo("ext-user-1");
+        assertThat(savedLink.getCreatedAt()).isNotNull();
 
         ArgumentCaptor<JsonNode> payloadCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(outboxEventPublisher).publish(
@@ -104,7 +121,43 @@ class WalletServiceTest {
         JsonNode payload = payloadCaptor.getValue();
         assertThat(payload.path("userId").asText()).isEqualTo(result.userId().toString());
         assertThat(payload.path("address").asText()).isEqualTo(result.address());
+        assertThat(payload.path("externalUserId").asText()).isEqualTo("ext-user-1");
+        assertThat(payload.path("provider").asText()).isEqualTo("MEMBER");
+        assertThat(result.externalUserId()).isEqualTo("ext-user-1");
+        assertThat(result.provider()).isEqualTo("MEMBER");
+        assertThat(result.created()).isTrue();
         verify(gasManagerService).ensureInitialGasGranted(result.address());
+    }
+
+    @Test
+    @DisplayName("signup은 동일 externalUserId가 이미 연결되어 있으면 기존 지갑을 반환한다")
+    void signupShouldReturnExistingWalletWhenExternalUserAlreadyLinked() {
+        // given: provider/externalUserId 매핑이 이미 존재한다.
+        UUID userId = UUID.fromString("0199587d-78f9-7000-8000-000000000099");
+        UserExternalLinkEntity link = new UserExternalLinkEntity();
+        link.setUserId(userId);
+        link.setProvider("MEMBER");
+        link.setExternalUserId("ext-user-existing");
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-user-existing"))
+            .thenReturn(Optional.of(link));
+
+        WalletEntity wallet = new WalletEntity();
+        wallet.setUserId(userId);
+        wallet.setAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        when(walletRepository.findById(userId)).thenReturn(Optional.of(wallet));
+
+        // when: 동일 externalUserId로 signup을 호출한다.
+        SignupResult result = walletService.signup("ext-user-existing", "member");
+
+        // then: 신규 생성 없이 기존 userId/address를 반환한다.
+        assertThat(result.userId()).isEqualTo(userId);
+        assertThat(result.address()).isEqualTo(wallet.getAddress());
+        assertThat(result.externalUserId()).isEqualTo("ext-user-existing");
+        assertThat(result.provider()).isEqualTo("MEMBER");
+        assertThat(result.created()).isFalse();
+        verify(jdbcTemplate, never()).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class));
+        verify(walletRepository, never()).save(any(WalletEntity.class));
+        verify(outboxEventPublisher, never()).publish(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -140,5 +193,49 @@ class WalletServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                 assertThat(ex.getMessage()).contains("Wallet not found");
             });
+    }
+
+    @Test
+    @DisplayName("signup은 RETURNING 구문 비호환(SQLState 42601)일 때만 명시적 user_id INSERT fallback을 수행한다")
+    void signupShouldFallbackOnlyForReturningCompatibilityIssue() {
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-fallback"))
+            .thenReturn(Optional.empty());
+        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+            .thenThrow(new BadSqlGrammarException(
+                "createUser",
+                "INSERT INTO users ... RETURNING user_id",
+                new SQLException("syntax error at or near RETURNING", "42601")
+            ));
+        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class))).thenReturn(1);
+        when(walletCryptoService.encryptPrivateKey(any())).thenReturn(new byte[] { 9, 9, 9 });
+        when(walletRepository.save(any(WalletEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userExternalLinkRepository.save(any(UserExternalLinkEntity.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        SignupResult result = walletService.signup("ext-fallback", null);
+
+        assertThat(result.created()).isTrue();
+        verify(jdbcTemplate).update(any(String.class), any(MapSqlParameterSource.class));
+    }
+
+    @Test
+    @DisplayName("signup은 non-compat SQL grammar 오류에서 generic 재시도 없이 스키마 미스매치로 즉시 실패한다")
+    void signupShouldFailFastForNonCompatibilitySqlGrammarError() {
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-schema"))
+            .thenReturn(Optional.empty());
+        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+            .thenThrow(new BadSqlGrammarException(
+                "createUser",
+                "INSERT INTO users ... RETURNING user_id",
+                new SQLException("relation \"users\" does not exist near RETURNING", "42P01")
+            ));
+
+        assertThatThrownBy(() -> walletService.signup("ext-schema", null))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+                assertThat(ex.getMessage()).contains("users table schema mismatch");
+            });
+
+        verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
     }
 }

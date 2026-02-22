@@ -44,4 +44,9 @@ public class PublicDataController {
     public List<UnitEntity> units(@PathVariable String classId) {
         return publicDataService.getUnits(classId);
     }
+
+    @GetMapping("/tokens")
+    public List<IssuedTokenItem> issuedTokens() {
+        return publicDataService.listIssuedTokens();
+    }
 }

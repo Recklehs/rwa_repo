@@ -8,6 +8,7 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -108,6 +109,42 @@ public class PublicDataService {
 
     public List<UnitEntity> getUnits(String classId) {
         return unitRepository.findByClassIdOrderByUnitNoAsc(classId);
+    }
+
+    public List<IssuedTokenItem> listIssuedTokens() {
+        List<UnitEntity> issuedUnits = unitRepository.findByTokenIdIsNotNullOrderByTokenIdAsc();
+        if (issuedUnits.isEmpty()) {
+            return List.of();
+        }
+
+        LinkedHashSet<String> classIds = new LinkedHashSet<>();
+        for (UnitEntity unit : issuedUnits) {
+            classIds.add(unit.getClassId());
+        }
+
+        Map<String, PropertyClassEntity> classesById = new LinkedHashMap<>();
+        for (PropertyClassEntity clazz : classRepository.findAllById(classIds)) {
+            classesById.put(clazz.getClassId(), clazz);
+        }
+
+        List<IssuedTokenItem> result = new ArrayList<>(issuedUnits.size());
+        for (UnitEntity unit : issuedUnits) {
+            PropertyClassEntity clazz = classesById.get(unit.getClassId());
+            result.add(new IssuedTokenItem(
+                unit.getTokenId(),
+                unit.getUnitId(),
+                unit.getUnitNo(),
+                unit.getClassId(),
+                clazz == null ? null : clazz.getKaptCode(),
+                clazz == null ? null : clazz.getClassKey(),
+                clazz == null ? null : clazz.getBaseTokenId(),
+                clazz == null ? null : clazz.getDocHash(),
+                clazz == null ? null : clazz.getIssuedAt(),
+                clazz == null ? null : clazz.getStatus(),
+                unit.getStatus()
+            ));
+        }
+        return result;
     }
 
     private void upsertClassAndUnits(String kaptCode, String classKey, int unitCount) {

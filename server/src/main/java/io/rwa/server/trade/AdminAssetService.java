@@ -9,6 +9,7 @@ import io.rwa.server.tx.OutboxTxEntity;
 import io.rwa.server.tx.TxOrchestratorService;
 import io.rwa.server.wallet.WalletService;
 import io.rwa.server.web3.ContractGatewayService;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,8 @@ import org.web3j.crypto.Credentials;
 
 @Service
 public class AdminAssetService {
+
+    private static final int MUSD_DECIMALS = 18;
 
     private final WalletService walletService;
     private final UnitRepository unitRepository;
@@ -45,18 +48,20 @@ public class AdminAssetService {
         String issuerPrivKey = requireKey(properties.getIssuerPrivateKey(), "ISSUER_PRIVATE_KEY");
         String issuerAddress = Credentials.create(issuerPrivKey).getAddress().toLowerCase();
         String toAddress = walletService.getAddress(request.toUserId());
+        BigInteger mintAmount = resolveFaucetAmount(request);
 
         OutboxTxEntity tx = txOrchestratorService.submitContractTx(
             idempotencyKey + ":faucet:musd:" + request.toUserId(),
             issuerAddress,
             issuerPrivKey,
             contractGatewayService.mockUsdAddress(),
-            contractGatewayService.fnMintMockUsd(toAddress, request.amount()),
+            contractGatewayService.fnMintMockUsd(toAddress, mintAmount),
             "FAUCET_MUSD",
             objectMapper.createObjectNode()
                 .put("toUserId", request.toUserId().toString())
                 .put("toAddress", toAddress)
-                .put("amount", request.amount().toString())
+                .put("amount", mintAmount.toString())
+                .put("amountHuman", request.amountHuman() == null ? null : request.amountHuman().stripTrailingZeros().toPlainString())
         );
 
         return new AdminAssetResult(tx.getOutboxId(), tx.getTxType(), tx.getStatus(), tx.getTxHash());
@@ -106,5 +111,39 @@ public class AdminAssetService {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, keyName + " is not configured");
         }
         return value;
+    }
+
+    private BigInteger resolveFaucetAmount(FaucetRequest request) {
+        BigInteger amountRaw = request.amount();
+        BigDecimal amountHuman = request.amountHuman();
+
+        if (amountRaw != null && amountHuman != null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Provide either amount(raw) or amountHuman, not both");
+        }
+
+        if (amountHuman != null) {
+            return toRawFromHuman(amountHuman);
+        }
+
+        if (amountRaw == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "amount or amountHuman is required");
+        }
+
+        if (amountRaw.signum() <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "amount must be greater than 0");
+        }
+
+        return amountRaw;
+    }
+
+    private BigInteger toRawFromHuman(BigDecimal amountHuman) {
+        if (amountHuman.signum() <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "amountHuman must be greater than 0");
+        }
+        try {
+            return amountHuman.movePointRight(MUSD_DECIMALS).toBigIntegerExact();
+        } catch (ArithmeticException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "amountHuman supports up to 18 decimal places");
+        }
     }
 }

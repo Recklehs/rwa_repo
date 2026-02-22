@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.rwa.server.common.ApiException;
 import io.rwa.server.web3.SendRawResult;
 import io.rwa.server.web3.Web3FunctionService;
-import jakarta.transaction.Transactional;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.time.Duration;
@@ -16,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.datatypes.Function;
 
@@ -45,7 +46,7 @@ public class TxOrchestratorService {
         this.objectMapper = objectMapper;
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = ApiException.class)
     public OutboxTxEntity submitContractTx(
         String requestId,
         String fromAddress,

@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.wallet.ComplianceStatus;
+import io.rwa.server.wallet.UserExternalLinkEntity;
+import io.rwa.server.wallet.UserExternalLinkRepository;
 import io.rwa.server.wallet.UserEntity;
 import io.rwa.server.wallet.UserRepository;
 import io.rwa.server.wallet.WalletEntity;
@@ -30,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -79,6 +82,9 @@ class AuthSignupDbDefaultIntegrationTest {
     private WalletRepository walletRepository;
 
     @Autowired
+    private UserExternalLinkRepository userExternalLinkRepository;
+
+    @Autowired
     private NamedParameterJdbcTemplate jdbcTemplate;
 
     @MockBean
@@ -92,9 +98,11 @@ class AuthSignupDbDefaultIntegrationTest {
 
     private UUID createdUserId;
     private String usedIdempotencyKey;
+    private String createdExternalUserId;
 
     @BeforeEach
     void ensureSchema() {
+        jdbcTemplate.getJdbcTemplate().execute("DROP TABLE IF EXISTS user_external_links");
         jdbcTemplate.getJdbcTemplate().execute("DROP TABLE IF EXISTS wallets");
         jdbcTemplate.getJdbcTemplate().execute("DROP TABLE IF EXISTS users");
         jdbcTemplate.getJdbcTemplate().execute("DROP TABLE IF EXISTS api_idempotency");
@@ -115,6 +123,18 @@ class AuthSignupDbDefaultIntegrationTest {
               encrypted_privkey BYTEA NOT NULL,
               enc_version INT NOT NULL,
               created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """);
+        jdbcTemplate.getJdbcTemplate().execute("""
+            CREATE TABLE user_external_links (
+              id BIGSERIAL PRIMARY KEY,
+              provider TEXT NOT NULL,
+              external_user_id TEXT NOT NULL,
+              user_id UUID NOT NULL REFERENCES users(user_id),
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              UNIQUE (provider, external_user_id),
+              UNIQUE (provider, user_id)
             )
             """);
         jdbcTemplate.getJdbcTemplate().execute("""
@@ -156,6 +176,10 @@ class AuthSignupDbDefaultIntegrationTest {
         }
 
         jdbcTemplate.update(
+            "DELETE FROM user_external_links WHERE user_id = :userId",
+            Map.of("userId", createdUserId)
+        );
+        jdbcTemplate.update(
             "DELETE FROM wallets WHERE user_id = :userId",
             Map.of("userId", createdUserId)
         );
@@ -179,9 +203,13 @@ class AuthSignupDbDefaultIntegrationTest {
     void signupShouldCreateUserIdViaDatabaseDefaultUuidV7() throws Exception {
         Instant before = Instant.now();
         usedIdempotencyKey = "it-signup-db-default-" + UUID.randomUUID();
+        createdExternalUserId = "it-ext-" + UUID.randomUUID();
 
         MvcResult result = mockMvc.perform(
-                post("/auth/signup").header("Idempotency-Key", usedIdempotencyKey)
+                post("/auth/signup")
+                    .header("Idempotency-Key", usedIdempotencyKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"externalUserId\":\"" + createdExternalUserId + "\"}")
             )
             .andExpect(status().isOk())
             .andReturn();
@@ -189,20 +217,31 @@ class AuthSignupDbDefaultIntegrationTest {
         JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
         createdUserId = UUID.fromString(body.path("userId").asText());
         String address = body.path("address").asText();
+        String provider = body.path("provider").asText();
+        String externalUserId = body.path("externalUserId").asText();
         Instant after = Instant.now();
 
         assertThat(createdUserId.version()).isEqualTo(7);
         assertThat(createdUserId.variant()).isEqualTo(2);
         assertThat(address).matches("^0x[0-9a-f]{40}$");
+        assertThat(provider).isEqualTo("MEMBER");
+        assertThat(externalUserId).isEqualTo(createdExternalUserId);
+        assertThat(body.path("created").asBoolean()).isTrue();
 
         Optional<UserEntity> userOpt = userRepository.findById(createdUserId);
         Optional<WalletEntity> walletOpt = walletRepository.findById(createdUserId);
+        Optional<UserExternalLinkEntity> linkOpt = userExternalLinkRepository.findByProviderAndExternalUserId(
+            provider,
+            createdExternalUserId
+        );
 
         assertThat(userOpt).isPresent();
         assertThat(walletOpt).isPresent();
+        assertThat(linkOpt).isPresent();
 
         UserEntity user = userOpt.orElseThrow();
         WalletEntity wallet = walletOpt.orElseThrow();
+        UserExternalLinkEntity link = linkOpt.orElseThrow();
 
         assertThat(user.getComplianceStatus()).isEqualTo(ComplianceStatus.PENDING);
         assertThat(user.getCreatedAt()).isNotNull();
@@ -215,5 +254,9 @@ class AuthSignupDbDefaultIntegrationTest {
         assertThat(wallet.getEncryptedPrivkey()).isNotNull();
         assertThat(wallet.getEncVersion()).isEqualTo(1);
         assertThat(wallet.getCreatedAt()).isNotNull();
+
+        assertThat(link.getUserId()).isEqualTo(createdUserId);
+        assertThat(link.getProvider()).isEqualTo("MEMBER");
+        assertThat(link.getExternalUserId()).isEqualTo(createdExternalUserId);
     }
 }

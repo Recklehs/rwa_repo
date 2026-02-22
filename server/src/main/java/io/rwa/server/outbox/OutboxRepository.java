@@ -3,6 +3,8 @@ package io.rwa.server.outbox;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.config.RwaProperties;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -11,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -18,9 +23,34 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class OutboxRepository {
 
+    private static final Logger log = LoggerFactory.getLogger(OutboxRepository.class);
+    private static final String EVENT_INSERT_SQL_JSONB = """
+        INSERT INTO outbox_event(event_id, aggregate_type, aggregate_id, event_type, payload, topic, partition_key, occurred_at)
+        VALUES (:eventId, :aggregateType, :aggregateId, :eventType, CAST(:payload AS jsonb), :topic, :partitionKey, :occurredAt)
+        """;
+    private static final String EVENT_INSERT_SQL_TEXT = """
+        INSERT INTO outbox_event(event_id, aggregate_type, aggregate_id, event_type, payload, topic, partition_key, occurred_at)
+        VALUES (:eventId, :aggregateType, :aggregateId, :eventType, :payload, :topic, :partitionKey, :occurredAt)
+        """;
+    private static final String OUTBOX_PAYLOAD_TYPE_SQL_CURRENT_SCHEMA = """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'outbox_event'
+          AND column_name = 'payload'
+        """;
+    private static final String OUTBOX_PAYLOAD_TYPE_SQL_PUBLIC = """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'outbox_event'
+          AND column_name = 'payload'
+        """;
+
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final RwaProperties properties;
+    private volatile Boolean outboxPayloadJsonb;
 
     public OutboxRepository(NamedParameterJdbcTemplate jdbcTemplate, ObjectMapper objectMapper, RwaProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
@@ -29,10 +59,7 @@ public class OutboxRepository {
     }
 
     public void insertEventAndInitDelivery(DomainEvent event) {
-        String eventSql = """
-            INSERT INTO outbox_event(event_id, aggregate_type, aggregate_id, event_type, payload, topic, partition_key, occurred_at)
-            VALUES (:eventId, :aggregateType, :aggregateId, :eventType, CAST(:payload AS jsonb), :topic, :partitionKey, :occurredAt)
-            """;
+        String eventSql = isOutboxPayloadJsonb() ? EVENT_INSERT_SQL_JSONB : EVENT_INSERT_SQL_TEXT;
         String deliverySql = """
             INSERT INTO outbox_delivery(event_id, status, attempt_count, updated_at)
             VALUES (:eventId, :status, 0, now())
@@ -46,7 +73,7 @@ public class OutboxRepository {
             .addValue("payload", event.payload().toString())
             .addValue("topic", event.topic())
             .addValue("partitionKey", event.partitionKey())
-            .addValue("occurredAt", event.occurredAt());
+            .addValue("occurredAt", Timestamp.from(event.occurredAt()), Types.TIMESTAMP);
 
         jdbcTemplate.update(eventSql, params);
         jdbcTemplate.update(deliverySql, new MapSqlParameterSource()
@@ -164,6 +191,41 @@ public class OutboxRepository {
             WHERE event_id = :eventId
             """;
         jdbcTemplate.update(sql, Map.of("eventId", eventId));
+    }
+
+    private boolean isOutboxPayloadJsonb() {
+        Boolean cached = outboxPayloadJsonb;
+        if (cached != null) {
+            return cached;
+        }
+
+        synchronized (this) {
+            if (outboxPayloadJsonb != null) {
+                return outboxPayloadJsonb;
+            }
+
+            String dataType = findOutboxPayloadDataType();
+            boolean detectedJsonb = dataType == null || "jsonb".equalsIgnoreCase(dataType);
+            outboxPayloadJsonb = detectedJsonb;
+            return detectedJsonb;
+        }
+    }
+
+    private String findOutboxPayloadDataType() {
+        try {
+            return jdbcTemplate.queryForObject(OUTBOX_PAYLOAD_TYPE_SQL_CURRENT_SCHEMA, Map.of(), String.class);
+        } catch (DataAccessException currentSchemaFailure) {
+            try {
+                return jdbcTemplate.queryForObject(OUTBOX_PAYLOAD_TYPE_SQL_PUBLIC, Map.of(), String.class);
+            } catch (DataAccessException publicSchemaFailure) {
+                log.warn(
+                    "Failed to inspect outbox_event.payload type. defaulting to jsonb binding. currentSchemaErr={}, publicSchemaErr={}",
+                    currentSchemaFailure.getMessage(),
+                    publicSchemaFailure.getMessage()
+                );
+                return null;
+            }
+        }
     }
 
     private OutboxEventRow toOutboxEventRow(ResultSet rs, int rowNum) throws SQLException {

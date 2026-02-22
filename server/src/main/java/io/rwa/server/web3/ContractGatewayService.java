@@ -166,6 +166,17 @@ public class ContractGatewayService {
         return ((Uint256) output.get(0)).getValue();
     }
 
+    public BigInteger shareTotalSupply(BigInteger tokenId) {
+        Function function = new Function(
+            "totalSupply",
+            List.of(new Uint256(tokenId)),
+            List.of(new TypeReference<Uint256>() {
+            })
+        );
+        List<Type> output = web3FunctionService.callFunction(propertyShareAddress(), function);
+        return ((Uint256) output.get(0)).getValue();
+    }
+
     public RegistryClassInfo getRegistryClass(String classIdHex) {
         Function function = new Function(
             "getClass",

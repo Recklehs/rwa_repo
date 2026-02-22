@@ -8,4 +8,5 @@ public interface UnitRepository extends JpaRepository<UnitEntity, String> {
     List<UnitEntity> findByClassIdOrderByUnitNoAsc(String classId);
     Optional<UnitEntity> findByClassIdAndUnitNo(String classId, int unitNo);
     Optional<UnitEntity> findByUnitId(String unitId);
+    List<UnitEntity> findByTokenIdIsNotNullOrderByTokenIdAsc();
 }
