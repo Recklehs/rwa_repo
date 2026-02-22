@@ -18,15 +18,19 @@ import io.rwa.server.tx.TxOrchestratorService;
 import io.rwa.server.web3.ContractGatewayService;
 import jakarta.transaction.Transactional;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.web3j.crypto.Credentials;
 
 @Service
 public class TokenizeService {
+
+    private static final Duration TOKENIZE_WAIT_TIMEOUT = Duration.ofMinutes(10);
 
     private final PropertyClassRepository classRepository;
     private final UnitRepository unitRepository;
@@ -78,76 +82,94 @@ public class TokenizeService {
             .toLowerCase();
 
         List<java.util.UUID> outboxIds = new ArrayList<>();
-
-        OutboxTxEntity reserveTx = txOrchestratorService.submitContractTx(
-            idempotencyKey + ":tokenize:reserve:" + classId,
-            issuerAddress,
-            issuerPrivateKey,
-            contractGatewayService.propertyTokenizerAddress(),
-            contractGatewayService.fnReserveAndRegisterClass(classId, docHash, clazz.getUnitCount(), issuedAt),
-            "TOKENIZE_RESERVE_REGISTER",
-            objectMapper.createObjectNode()
-                .put("classId", classId)
-                .put("docHash", docHash)
-                .put("unitCount", clazz.getUnitCount())
-                .put("issuedAt", issuedAt)
-        );
-        outboxIds.add(reserveTx.getOutboxId());
-
-        int unitCount = clazz.getUnitCount();
-        for (int start = 0; start < unitCount; start += chunkSize) {
-            int count = Math.min(chunkSize, unitCount - start);
-            try {
-                OutboxTxEntity mintTx = txOrchestratorService.submitContractTx(
-                    idempotencyKey + ":tokenize:mint:" + classId + ":" + start,
-                    issuerAddress,
-                    issuerPrivateKey,
-                    contractGatewayService.propertyTokenizerAddress(),
-                    contractGatewayService.fnMintUnits(classId, start, count, treasuryAddress),
-                    "TOKENIZE_MINT_CHUNK",
-                    objectMapper.createObjectNode()
-                        .put("classId", classId)
-                        .put("startOffset", start)
-                        .put("count", count)
-                );
-                outboxIds.add(mintTx.getOutboxId());
-            } catch (ApiException e) {
-                if (e.getMessage() != null && e.getMessage().contains("TokenAlreadyMinted")) {
-                    continue;
-                }
-                throw e;
-            }
+        ContractGatewayService.RegistryClassInfo chainClass = contractGatewayService.getRegistryClass(classId);
+        if (chainClass.unitCount() > 0 && chainClass.unitCount() != clazz.getUnitCount()) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "On-chain class unitCount mismatch. db=" + clazz.getUnitCount() + ", chain=" + chainClass.unitCount()
+            );
+        }
+        if (chainClass.unitCount() == 0) {
+            OutboxTxEntity reserveTx = txOrchestratorService.submitContractTx(
+                idempotencyKey + ":tokenize:reserve:" + classId,
+                issuerAddress,
+                issuerPrivateKey,
+                contractGatewayService.propertyTokenizerAddress(),
+                contractGatewayService.fnReserveAndRegisterClass(classId, docHash, clazz.getUnitCount(), issuedAt),
+                "TOKENIZE_RESERVE_REGISTER",
+                objectMapper.createObjectNode()
+                    .put("classId", classId)
+                    .put("docHash", docHash)
+                    .put("unitCount", clazz.getUnitCount())
+                    .put("issuedAt", issuedAt)
+            );
+            outboxIds.add(reserveTx.getOutboxId());
+            waitForMinedOrThrow(reserveTx.getOutboxId(), "reserve");
+            chainClass = contractGatewayService.getRegistryClass(classId);
         }
 
-        clazz.setDocHash(docHash);
-        clazz.setIssuedAt(Instant.ofEpochSecond(issuedAt));
-        clazz.setStatus(PublicDataService.CLASS_STATUS_TOKENIZED);
+        if (chainClass.unitCount() == 0) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Class is not registered on-chain after reserve step");
+        }
+
+        BigInteger baseTokenId = chainClass.baseTokenId();
+        int unitCount = chainClass.unitCount();
+        List<UUID> mintOutboxIds = new ArrayList<>();
+        for (int start = 0; start < unitCount; start += chunkSize) {
+            int count = Math.min(chunkSize, unitCount - start);
+            mintOutboxIds.addAll(submitMintChunkWithFallback(
+                idempotencyKey,
+                classId,
+                start,
+                count,
+                baseTokenId,
+                issuerAddress,
+                issuerPrivateKey,
+                treasuryAddress
+            ));
+        }
+        outboxIds.addAll(mintOutboxIds);
+
+        for (UUID mintOutboxId : mintOutboxIds) {
+            waitForMinedOrThrow(mintOutboxId, "mint");
+        }
+
+        chainClass = contractGatewayService.getRegistryClass(classId);
+        boolean allMinted = areAllUnitsMinted(chainClass.baseTokenId(), chainClass.unitCount());
+        String previousStatus = clazz.getStatus();
+
+        clazz.setDocHash(chainClass.docHash());
+        clazz.setIssuedAt(Instant.ofEpochSecond(chainClass.issuedAt()));
+        clazz.setBaseTokenId(chainClass.baseTokenId());
+        clazz.setStatus(allMinted ? PublicDataService.CLASS_STATUS_TOKENIZED : PublicDataService.CLASS_STATUS_IMPORTED);
         clazz.setUpdatedAt(Instant.now());
 
-        try {
-            ContractGatewayService.RegistryClassInfo chainClass = contractGatewayService.getRegistryClass(classId);
-            if (chainClass.unitCount() > 0) {
-                clazz.setBaseTokenId(chainClass.baseTokenId());
-                List<UnitEntity> units = unitRepository.findByClassIdOrderByUnitNoAsc(classId);
-                for (UnitEntity unit : units) {
-                    unit.setTokenId(chainClass.baseTokenId().add(BigInteger.valueOf(unit.getUnitNo() - 1L)));
+        if (chainClass.unitCount() > 0) {
+            List<UnitEntity> units = unitRepository.findByClassIdOrderByUnitNoAsc(classId);
+            for (UnitEntity unit : units) {
+                unit.setTokenId(chainClass.baseTokenId().add(BigInteger.valueOf(unit.getUnitNo() - 1L)));
+                if (allMinted) {
                     unit.setStatus(PublicDataService.CLASS_STATUS_TOKENIZED);
-                    unitRepository.save(unit);
+                } else if (unit.getStatus() == null) {
+                    unit.setStatus(PublicDataService.CLASS_STATUS_IMPORTED);
                 }
+                unitRepository.save(unit);
             }
-        } catch (Exception ignored) {
-            // chain state may not be visible yet; tx status endpoint can be used to track completion.
+            unitRepository.flush();
         }
 
         classRepository.save(clazz);
+        classRepository.flush();
 
-        ObjectNode payload = objectMapper.createObjectNode()
-            .put("classId", classId)
-            .put("docHash", docHash)
-            .put("status", clazz.getStatus());
-        outboxEventPublisher.publish("Class", classId, "ClassTokenized", classId, payload);
+        if (allMinted && !PublicDataService.CLASS_STATUS_TOKENIZED.equals(previousStatus)) {
+            ObjectNode payload = objectMapper.createObjectNode()
+                .put("classId", classId)
+                .put("docHash", clazz.getDocHash())
+                .put("status", clazz.getStatus());
+            outboxEventPublisher.publish("Class", classId, "ClassTokenized", classId, payload);
+        }
 
-        return new TokenizeResult(classId, docHash, clazz.getStatus(), outboxIds);
+        return new TokenizeResult(classId, clazz.getDocHash(), clazz.getStatus(), outboxIds);
     }
 
     private String computeDocHash(PropertyClassEntity clazz) {
@@ -175,6 +197,120 @@ public class TokenizeService {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, envName + " is required");
         }
         return key;
+    }
+
+    private void waitForMinedOrThrow(UUID outboxId, String phase) {
+        try {
+            txOrchestratorService.waitForMined(outboxId, TOKENIZE_WAIT_TIMEOUT);
+        } catch (ApiException e) {
+            if (e.getStatus() == HttpStatus.ACCEPTED) {
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Tokenize " + phase + " tx not mined within timeout: " + outboxId
+                );
+            }
+            throw e;
+        }
+    }
+
+    private List<UUID> submitMintChunkWithFallback(
+        String idempotencyKey,
+        String classId,
+        int start,
+        int count,
+        BigInteger baseTokenId,
+        String issuerAddress,
+        String issuerPrivateKey,
+        String treasuryAddress
+    ) {
+        List<UUID> outboxIds = new ArrayList<>();
+        try {
+            OutboxTxEntity mintTx = submitMintTx(idempotencyKey, classId, start, count, issuerAddress, issuerPrivateKey, treasuryAddress);
+            outboxIds.add(mintTx.getOutboxId());
+            return outboxIds;
+        } catch (ApiException e) {
+            if (!looksLikeTokenAlreadyMinted(e)) {
+                throw e;
+            }
+            if (count == 1) {
+                if (isUnitMinted(baseTokenId, start)) {
+                    return outboxIds;
+                }
+                throw e;
+            }
+        }
+
+        for (int offset = start; offset < start + count; offset++) {
+            if (isUnitMinted(baseTokenId, offset)) {
+                continue;
+            }
+            try {
+                OutboxTxEntity singleMint = submitMintTx(
+                    idempotencyKey,
+                    classId,
+                    offset,
+                    1,
+                    issuerAddress,
+                    issuerPrivateKey,
+                    treasuryAddress
+                );
+                outboxIds.add(singleMint.getOutboxId());
+            } catch (ApiException e) {
+                if (looksLikeTokenAlreadyMinted(e) && isUnitMinted(baseTokenId, offset)) {
+                    continue;
+                }
+                throw e;
+            }
+        }
+        return outboxIds;
+    }
+
+    private OutboxTxEntity submitMintTx(
+        String idempotencyKey,
+        String classId,
+        int startOffset,
+        int count,
+        String issuerAddress,
+        String issuerPrivateKey,
+        String treasuryAddress
+    ) {
+        return txOrchestratorService.submitContractTx(
+            idempotencyKey + ":tokenize:mint:" + classId + ":" + startOffset + ":" + count,
+            issuerAddress,
+            issuerPrivateKey,
+            contractGatewayService.propertyTokenizerAddress(),
+            contractGatewayService.fnMintUnits(classId, startOffset, count, treasuryAddress),
+            "TOKENIZE_MINT_CHUNK",
+            objectMapper.createObjectNode()
+                .put("classId", classId)
+                .put("startOffset", startOffset)
+                .put("count", count)
+        );
+    }
+
+    private boolean looksLikeTokenAlreadyMinted(ApiException e) {
+        String message = e.getMessage();
+        return message != null && (
+            message.contains("TokenAlreadyMinted")
+                || message.toLowerCase().contains("execution reverted")
+        );
+    }
+
+    private boolean areAllUnitsMinted(BigInteger baseTokenId, int unitCount) {
+        if (baseTokenId == null || unitCount <= 0) {
+            return false;
+        }
+        for (int i = 0; i < unitCount; i++) {
+            if (!isUnitMinted(baseTokenId, i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isUnitMinted(BigInteger baseTokenId, int offset) {
+        BigInteger tokenId = baseTokenId.add(BigInteger.valueOf(offset));
+        return contractGatewayService.shareTotalSupply(tokenId).compareTo(BigInteger.ZERO) > 0;
     }
 
     public record TokenizeResult(

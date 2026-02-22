@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import org.hibernate.annotations.ColumnTransformer;
 
 @Entity
 @Table(name = "complexes")
@@ -27,6 +28,7 @@ public class ComplexEntity {
     private Integer hoCnt;
 
     @Column(name = "raw_json", columnDefinition = "jsonb", nullable = false)
+    @ColumnTransformer(write = "?::jsonb")
     private String rawJson;
 
     @Column(name = "fetched_at", nullable = false)

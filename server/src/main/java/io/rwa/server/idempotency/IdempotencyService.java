@@ -54,7 +54,7 @@ public class IdempotencyService {
             UPDATE api_idempotency
             SET status = :status,
                 response_status = :responseStatus,
-                response_body = CAST(:responseBody AS jsonb),
+                response_body = :responseBody,
                 updated_at = now()
             WHERE endpoint = :endpoint AND idempotency_key = :key
             """;
@@ -71,7 +71,7 @@ public class IdempotencyService {
             UPDATE api_idempotency
             SET status = :status,
                 response_status = :responseStatus,
-                response_body = CAST(:responseBody AS jsonb),
+                response_body = :responseBody,
                 updated_at = now()
             WHERE endpoint = :endpoint AND idempotency_key = :key
             """;
