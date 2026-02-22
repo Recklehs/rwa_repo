@@ -1,5 +1,6 @@
 package io.rwa.server.config;
 
+import java.math.BigInteger;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "rwa")
@@ -14,6 +15,7 @@ public class RwaProperties {
     private String adminApiToken;
     private long nonceLockTimeoutMs = 5000L;
     private final Tx tx = new Tx();
+    private final GasSponsor gasSponsor = new GasSponsor();
     private final Outbox outbox = new Outbox();
 
     public String getSharedDirPath() {
@@ -84,6 +86,10 @@ public class RwaProperties {
         return tx;
     }
 
+    public GasSponsor getGasSponsor() {
+        return gasSponsor;
+    }
+
     public Outbox getOutbox() {
         return outbox;
     }
@@ -115,6 +121,108 @@ public class RwaProperties {
 
         public void setDefaultGasLimit(long defaultGasLimit) {
             this.defaultGasLimit = defaultGasLimit;
+        }
+    }
+
+    public static class GasSponsor {
+        private boolean enabled = true;
+        private String stationPrivateKey;
+        private BigInteger stationInitialGrantWei = new BigInteger("1000000000000000");
+        private BigInteger stationTopupTargetWei = new BigInteger("1000000000000000");
+        private BigInteger stationDustReserveWei = new BigInteger("300000000000000");
+        private double estimateMultiplier = 1.2d;
+        private double maxFeeBaseMultiplier = 2.0d;
+        private BigInteger maxPriorityFeeWei = new BigInteger("100000000");
+        private String l1FeeOracleAddress;
+        private double l1FeeMultiplier = 1.2d;
+        private long topupConfirmations = 1L;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getStationPrivateKey() {
+            return stationPrivateKey;
+        }
+
+        public void setStationPrivateKey(String stationPrivateKey) {
+            this.stationPrivateKey = stationPrivateKey;
+        }
+
+        public BigInteger getStationInitialGrantWei() {
+            return stationInitialGrantWei;
+        }
+
+        public void setStationInitialGrantWei(BigInteger stationInitialGrantWei) {
+            this.stationInitialGrantWei = stationInitialGrantWei;
+        }
+
+        public BigInteger getStationTopupTargetWei() {
+            return stationTopupTargetWei;
+        }
+
+        public void setStationTopupTargetWei(BigInteger stationTopupTargetWei) {
+            this.stationTopupTargetWei = stationTopupTargetWei;
+        }
+
+        public BigInteger getStationDustReserveWei() {
+            return stationDustReserveWei;
+        }
+
+        public void setStationDustReserveWei(BigInteger stationDustReserveWei) {
+            this.stationDustReserveWei = stationDustReserveWei;
+        }
+
+        public double getEstimateMultiplier() {
+            return estimateMultiplier;
+        }
+
+        public void setEstimateMultiplier(double estimateMultiplier) {
+            this.estimateMultiplier = estimateMultiplier;
+        }
+
+        public double getMaxFeeBaseMultiplier() {
+            return maxFeeBaseMultiplier;
+        }
+
+        public void setMaxFeeBaseMultiplier(double maxFeeBaseMultiplier) {
+            this.maxFeeBaseMultiplier = maxFeeBaseMultiplier;
+        }
+
+        public BigInteger getMaxPriorityFeeWei() {
+            return maxPriorityFeeWei;
+        }
+
+        public void setMaxPriorityFeeWei(BigInteger maxPriorityFeeWei) {
+            this.maxPriorityFeeWei = maxPriorityFeeWei;
+        }
+
+        public String getL1FeeOracleAddress() {
+            return l1FeeOracleAddress;
+        }
+
+        public void setL1FeeOracleAddress(String l1FeeOracleAddress) {
+            this.l1FeeOracleAddress = l1FeeOracleAddress;
+        }
+
+        public double getL1FeeMultiplier() {
+            return l1FeeMultiplier;
+        }
+
+        public void setL1FeeMultiplier(double l1FeeMultiplier) {
+            this.l1FeeMultiplier = l1FeeMultiplier;
+        }
+
+        public long getTopupConfirmations() {
+            return topupConfirmations;
+        }
+
+        public void setTopupConfirmations(long topupConfirmations) {
+            this.topupConfirmations = topupConfirmations;
         }
     }
 

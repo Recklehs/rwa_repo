@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.common.ApiException;
 import io.rwa.server.outbox.OutboxEventPublisher;
+import io.rwa.server.tx.GasManagerService;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,9 @@ class WalletServiceTest {
     @Mock
     private OutboxEventPublisher outboxEventPublisher;
 
+    @Mock
+    private GasManagerService gasManagerService;
+
     private WalletService walletService;
 
     @BeforeEach
@@ -46,6 +50,7 @@ class WalletServiceTest {
             walletRepository,
             walletCryptoService,
             outboxEventPublisher,
+            gasManagerService,
             new ObjectMapper()
         );
     }
@@ -99,6 +104,7 @@ class WalletServiceTest {
         JsonNode payload = payloadCaptor.getValue();
         assertThat(payload.path("userId").asText()).isEqualTo(result.userId().toString());
         assertThat(payload.path("address").asText()).isEqualTo(result.address());
+        verify(gasManagerService).ensureInitialGasGranted(result.address());
     }
 
     @Test

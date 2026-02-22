@@ -41,6 +41,18 @@ rwa:
   treasury-private-key: ${TREASURY_PRIVATE_KEY:}
   admin-api-token: ${ADMIN_API_TOKEN:}
   nonce-lock-timeout-ms: ${NONCE_LOCK_TIMEOUT_MS:5000}
+  gas-sponsor:
+    enabled: ${GAS_SPONSOR_ENABLED:true}
+    station-private-key: ${GAS_STATION_PRIVATE_KEY:}
+    station-initial-grant-wei: ${GAS_STATION_INITIAL_GRANT_WEI:1000000000000000}
+    station-topup-target-wei: ${GAS_STATION_TOPUP_TARGET_WEI:1000000000000000}
+    station-dust-reserve-wei: ${GAS_STATION_DUST_RESERVE_WEI:300000000000000}
+    estimate-multiplier: ${GAS_ESTIMATE_MULTIPLIER:1.2}
+    max-fee-base-multiplier: ${MAX_FEE_BASE_MULTIPLIER:2.0}
+    max-priority-fee-wei: ${MAX_PRIORITY_FEE_WEI:100000000}
+    l1-fee-oracle-address: ${L1_FEE_ORACLE_ADDRESS:}
+    l1-fee-multiplier: ${L1_FEE_MULTIPLIER:1.2}
+    topup-confirmations: ${GAS_TOPUP_CONFIRMATIONS:1}
   tx:
     confirmations: ${TX_CONFIRMATIONS:12}
     polling-interval-ms: ${TX_POLLING_INTERVAL_MS:5000}
