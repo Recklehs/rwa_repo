@@ -43,11 +43,13 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Custodial wallet issuance and secure key storage
 - Off-chain compliance approval/revocation + enforcement gates
 - Public data import (complex/class/unit creation) including UNKNOWN class (Option A)
-- Tokenization orchestration via PropertyTokenizer (reserve+register+mint chunking)
+- Tokenization orchestration via PropertyTokenizer (reserve+register+mint chunking, mined 확인 기반 단계 진행)
+- Tokenization 결과의 on-chain registry 재조회 기반 동기화(`docHash/baseTokenId/issuedAt/status`)
 - Faucet mUSD and share distribution
 - Trading orchestration (list/buy) as user-signed txs (custodial)
 - Tx Orchestrator (nonce safety, outbox_tx, receipts, retries)
 - Read-only query APIs powered by Postgres read-models updated by Flink (listings/trades/balances)
+- Public token catalog query (`GET /tokens`) and registry introspection (`GET /admin/classes/{classId}/registry`)
 - Transactional Outbox Pattern (CDC-friendly) for domain events -> Kafka (optional downstream consumers)
 - API Idempotency for ALL mutating endpoints
 - Distributed per-address nonce lock for multi-instance safety
@@ -169,8 +171,10 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `GET /complexes/{kaptCode}`
 - `GET /complexes/{kaptCode}/classes`
 - `GET /classes/{classId}/units`
+- `GET /tokens` (DB 기준 발행 완료 token/unit 목록)
 - `POST /admin/classes/{classId}/tokenize`
-- `POST /admin/faucet/musd`
+- `GET /admin/classes/{classId}/registry`
+- `POST /admin/faucet/musd` (body: `toUserId` + (`amount` raw or `amountHuman`))
 - `POST /admin/distribute/shares`
 - `POST /trade/list`
 - `POST /trade/buy`
@@ -183,6 +187,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 ## 8) Tx Orchestrator (MUST)
 - Must apply distributed address lock.
 - Must use pending nonce.
+- `submitContractTx()` is executed in independent transaction boundary (`REQUIRES_NEW`) so FAILED traces persist.
 - `outbox_tx` lifecycle: `CREATED -> SIGNED -> SENT -> MINED | FAILED | REPLACED`
 - Chain final business state is from Flink read-model events, not receipt-only.
 
@@ -193,9 +198,9 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Retry scheduler does not hold DB lock while sending Kafka
 - Listing lag scenario still allows `/trade/buy` via on-chain listing fallback
 
-## 10) JUnit test coverage (implemented: 2026-02-17)
+## 10) JUnit test coverage (updated: 2026-02-22)
 - Test execution command: `cd server && ./gradlew test`
-- Latest result: `30 tests, 0 failures, 0 errors, 1 skipped`
+- Latest result: `35 tests, 0 failures, 0 errors, 1 skipped`
 
 ### Unit tests
 - `server/src/test/java/io/rwa/server/wallet/WalletServiceTest.java`
@@ -209,6 +214,11 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - `list()` rejects missing `tokenId` and `unitId` with `400`.
   - `buy()` rejects non-ACTIVE listing with `409`.
   - `buy()` submits approve+buy tx sequence when allowance is insufficient and validates cost calculation.
+- `server/src/test/java/io/rwa/server/trade/AdminAssetServiceTest.java`
+  - `/admin/faucet/musd`에서 `amountHuman`(사람 단위) -> raw(18 decimals) 변환 검증.
+  - 기존 `amount`(raw) 입력과의 하위 호환 검증.
+  - `amount`+`amountHuman` 동시 입력 시 `400` 검증.
+  - `amountHuman` 소수점 18자리 초과 시 `400` 검증.
 
 ### Web integration tests (MockMvc)
 - `server/src/test/java/io/rwa/server/auth/AuthIdempotencyIntegrationTest.java`
@@ -236,6 +246,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `server/src/test/java/io/rwa/server/publicdata/PublicDataRepositoryJpaIntegrationTest.java`
   - `UnitRepository.findByClassIdOrderByUnitNoAsc` 정렬 조회 검증.
   - `UnitRepository.findByClassIdAndUnitNo` 단건 조회 검증.
+  - `UnitRepository.findByTokenIdIsNotNullOrderByTokenIdAsc` 발행 토큰 필터/정렬 조회 검증.
   - `PropertyClassRepository.findByKaptCodeOrderByClassKeyAsc` 정렬 조회 검증.
 
 ## Implementation Notes (project decisions)
@@ -254,6 +265,19 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Non-compat SQL grammar failures must fail fast with migration guidance (`V1~V10`).
 - Kafka mode: feature flag (`outbox.kafka.enabled`)
 - Java baseline: 17 (repository/runtime aligned)
+- Faucet request contract:
+  - `POST /admin/faucet/musd` accepts one of:
+    - `amount` (raw, 10^18 scale)
+    - `amountHuman` (human-readable decimal, server converts to raw)
+  - Rejects requests that provide both fields or none.
+- Tokenize contract behavior:
+  - Reserve tx mined 확인 후 mint 단계 진행.
+  - Mint tx mined 확인 후 `classes/units` 상태 반영.
+  - Finalize 시 on-chain registry 재조회 값으로 `docHash/baseTokenId/issuedAt/status` 동기화.
+- Public token catalog:
+  - `GET /tokens` returns issued unit-token rows (`units.token_id IS NOT NULL`) with class metadata.
+- Registry introspection:
+  - `GET /admin/classes/{classId}/registry` returns current on-chain class registry state.
 
 ## Update Policy
 - `server/codex_spec.md` is the server module's single source of truth for this request.
@@ -328,3 +352,34 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
     - `jsonb` column: `CAST(:payload AS jsonb)`
     - non-`jsonb` column: plain `:payload` binding
   - Added `OutboxRepositoryTest` to validate SQL selection for both column type cases.
+- 2026-02-22: Hardened tokenize finalize path and added token/registry query APIs.
+  - Scope: tokenize orchestration reliability, public/admin query surface.
+  - Tokenize now waits reserve mined before mint, waits mint mined before finalize, and syncs class metadata from on-chain registry.
+  - Added `GET /admin/classes/{classId}/registry` for direct on-chain class state introspection.
+  - Added `GET /tokens` to list all issued unit tokens (`token_id IS NOT NULL`) with class metadata.
+  - Impacted files/components:
+    - `server/src/main/java/io/rwa/server/tokenize/TokenizeService.java`
+    - `server/src/main/java/io/rwa/server/tokenize/TokenizeController.java`
+    - `server/src/main/java/io/rwa/server/publicdata/PublicDataController.java`
+    - `server/src/main/java/io/rwa/server/publicdata/PublicDataService.java`
+    - `server/src/main/java/io/rwa/server/publicdata/UnitRepository.java`
+    - `server/src/main/java/io/rwa/server/publicdata/IssuedTokenItem.java`
+    - `server/src/test/java/io/rwa/server/publicdata/PublicDataRepositoryJpaIntegrationTest.java`
+- 2026-02-22: Updated faucet API contract to support human-readable amount input.
+  - Scope: `/admin/faucet/musd` request contract and test/tooling alignment.
+  - Added `amountHuman` input (decimal) with server-side conversion to raw 18-decimal amount.
+  - Kept backward compatibility for existing `amount` raw input.
+  - Added validation for mutually exclusive fields and scale/positivity constraints.
+  - Impacted files/components:
+    - `server/src/main/java/io/rwa/server/trade/FaucetRequest.java`
+    - `server/src/main/java/io/rwa/server/trade/AdminAssetService.java`
+    - `server/src/test/java/io/rwa/server/trade/AdminAssetServiceTest.java`
+    - `server/scripts/smoke_e2e.sh`
+    - `server/scripts/postman/rwa-server-e2e.postman_collection.json`
+    - `server/scripts/postman/rwa-server-local.postman_environment.json`
+    - `server/scripts/README.md`
+- 2026-02-22: Strengthened tx outbox observability under failure.
+  - Scope: tx orchestrator transaction boundary.
+  - `submitContractTx()` changed to independent transaction boundary (`REQUIRES_NEW`) and preserves FAILED outbox traces.
+  - Impacted files/components:
+    - `server/src/main/java/io/rwa/server/tx/TxOrchestratorService.java`
