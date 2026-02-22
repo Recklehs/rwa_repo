@@ -61,10 +61,11 @@ public class LogIngestionService {
         int activeMaxRange = config.maxBlockRange();
 
         log.info(
-            "Ingester started. chainId={}, rpcUrl={}, topic={}, confirmations={}, startLastProcessedBlock={}",
+            "Ingester started. chainId={}, rpcUrl={}, topic={}, dlqTopic={}, confirmations={}, startLastProcessedBlock={}",
             shared.chainId(),
             config.rpcUrl(),
             config.kafkaTopic(),
+            config.kafkaDlqTopic(),
             shared.confirmations(),
             lastProcessedBlock
         );
@@ -189,11 +190,16 @@ public class LogIngestionService {
         for (Log chainLog : logsInWindow) {
             while (true) {
                 try {
-                    Optional<ObjectNode> envelope = buildEnvelope(chainLog, timestampCache);
+                    Optional<PublishEnvelope> envelope = buildEnvelope(chainLog, timestampCache);
                     if (envelope.isEmpty()) {
                         break;
                     }
-                    kafkaPublisher.publish(Long.toString(shared.chainId()), envelope.get());
+                    PublishEnvelope publishEnvelope = envelope.get();
+                    kafkaPublisher.publish(
+                        publishEnvelope.topic(),
+                        Long.toString(shared.chainId()),
+                        publishEnvelope.payload()
+                    );
                     break;
                 } catch (InterruptedException e) {
                     throw e;
@@ -210,7 +216,7 @@ public class LogIngestionService {
         }
     }
 
-    private Optional<ObjectNode> buildEnvelope(Log chainLog, Map<BigInteger, String> timestampCache) throws IOException {
+    private Optional<PublishEnvelope> buildEnvelope(Log chainLog, Map<BigInteger, String> timestampCache) throws IOException {
         String contractAddress = normalize(chainLog.getAddress());
         String topic0 = chainLog.getTopics().isEmpty() ? "" : normalize(chainLog.getTopics().get(0));
         Optional<EventSubscription> matchedEvent = shared.findEvent(contractAddress, topic0);
@@ -247,6 +253,7 @@ public class LogIngestionService {
         value.put("removed", false);
         value.put("dedupKey", buildDedupKey(chainLog, topic0));
 
+        boolean eventKnown = matchedEvent.isPresent();
         if (matchedEvent.isPresent()) {
             EventSubscription event = matchedEvent.get();
             value.put("eventKnown", true);
@@ -264,7 +271,24 @@ public class LogIngestionService {
         }
 
         value.put("ingestedAt", Instant.now().toString());
-        return Optional.of(value);
+        String destinationTopic = resolveDestinationTopic(eventKnown);
+        if (!eventKnown && shared.unknownEventPolicy() == UnknownEventPolicy.DLQ) {
+            value.put("routedToDlq", true);
+            value.put("dlqReason", "UNKNOWN_EVENT");
+            value.put("sourceTopic", config.kafkaTopic());
+            value.put("destinationTopic", destinationTopic);
+        }
+        return Optional.of(new PublishEnvelope(destinationTopic, value));
+    }
+
+    String resolveDestinationTopic(boolean eventKnown) {
+        if (eventKnown) {
+            return config.kafkaTopic();
+        }
+        if (shared.unknownEventPolicy() == UnknownEventPolicy.DLQ) {
+            return config.kafkaDlqTopic();
+        }
+        return config.kafkaTopic();
     }
 
     private String resolveBlockTimestamp(BigInteger blockNumber, Map<BigInteger, String> cache) throws IOException {
@@ -352,5 +376,8 @@ public class LogIngestionService {
         int windowRange,
         int nextMaxRange
     ) {
+    }
+
+    private record PublishEnvelope(String topic, ObjectNode payload) {
     }
 }

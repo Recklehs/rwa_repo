@@ -19,6 +19,7 @@ class SharedResourcesLoaderTest {
             "giwa-sepolia",
             "localhost:9092",
             "chain.logs.raw",
+            "chain.logs.dlq",
             "",
             "",
             "",

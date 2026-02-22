@@ -48,6 +48,7 @@ Ingester does NOT:
 - `GIWA_RPC_URL=https://sepolia-rpc.giwa.io`
 - `KAFKA_BOOTSTRAP_SERVERS=...`
 - `KAFKA_TOPIC=chain.logs.raw`
+- `KAFKA_DLQ_TOPIC=chain.logs.dlq`
 - `KAFKA_SECURITY_PROTOCOL` (optional; ex: `SASL_SSL` for Azure Event Hubs Kafka)
 - `KAFKA_SASL_MECHANISM` (optional; ex: `PLAIN`)
 - `KAFKA_SASL_JAAS_CONFIG` (optional; Event Hubs connection string auth)
@@ -108,6 +109,10 @@ Checkpoint rule:
 Error handling:
 - `eth_getLogs` too large/too many results -> halve range and retry
 - Kafka send fail -> do NOT advance checkpoint, retry send
+- Unknown event policy:
+  - `SKIP`: drop unknown event log
+  - `FAIL`: throw and retry loop without checkpoint advance
+  - `DLQ`: publish unknown event envelope to `KAFKA_DLQ_TOPIC`
 
 ## 6) Kafka message schema (raw envelope)
 
@@ -140,6 +145,15 @@ Value JSON:
 }
 ```
 
+Unknown event envelope (only when `unknownEventPolicy=DLQ`):
+- `eventKnown=false`
+- `eventId=unknown`
+- `unknownEventPolicy=DLQ`
+- `routedToDlq=true`
+- `dlqReason=UNKNOWN_EVENT`
+- `sourceTopic=<KAFKA_TOPIC>`
+- `destinationTopic=<KAFKA_DLQ_TOPIC>`
+
 Ordering guidance:
 - Prefer topic partitions = 1, or key by `{chainId}`.
 - If multi-partition, downstream Flink must handle out-of-order.
@@ -150,6 +164,7 @@ Ordering guidance:
 - Reads addresses/event-catalog/constants from `shared/*` at runtime.
 - Emits enabled `signatures.json` logs only up to `(latest - 12)`.
 - Produces messages ordered by `(blockNumber, logIndex)`.
+- Unknown events are routed per policy (`SKIP`/`FAIL`/`DLQ`) and `DLQ` goes to `KAFKA_DLQ_TOPIC`.
 - Restart resumes from `lastProcessedBlock` without gaps.
 - Duplicates are acceptable (downstream dedup).
 
@@ -166,9 +181,9 @@ Ordering guidance:
 - Checkpoint stores:
   - file: `FileStateStore`
   - postgres: `PostgresStateStore` (`ingester_state` auto-create)
-- Kafka producer and raw envelope:
+- Kafka producer and raw/dlq envelope routing:
   - `ingester/src/main/java/io/rwa/ingester/kafka/KafkaRawLogPublisher.java`
-  - Topic default: `chain.logs.raw`
+  - Topic defaults: `chain.logs.raw` and `chain.logs.dlq`
 
 ## Update policy
 
@@ -190,3 +205,7 @@ Ordering guidance:
   - Added optional SASL/SSL producer settings (`KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_JAAS_CONFIG`, `KAFKA_CLIENT_DNS_LOOKUP`).
   - Added producer timeout/tuning env settings (`KAFKA_REQUEST_TIMEOUT_MS`, `KAFKA_DELIVERY_TIMEOUT_MS`, `KAFKA_LINGER_MS`, `KAFKA_COMPRESSION_TYPE`).
   - Updated `ingester/.env.example` with Event Hubs Kafka endpoint sample.
+- 2026-02-22: Implemented unknown-event DLQ routing.
+  - Added `KAFKA_DLQ_TOPIC` runtime config (default `chain.logs.dlq`).
+  - Added topic-aware Kafka publish API and routing logic in ingestion service.
+  - Added unknown-event DLQ metadata fields (`routedToDlq`, `dlqReason`, `sourceTopic`, `destinationTopic`).

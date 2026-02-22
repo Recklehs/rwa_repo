@@ -11,6 +11,7 @@ public record IngesterConfig(
     String network,
     String kafkaBootstrapServers,
     String kafkaTopic,
+    String kafkaDlqTopic,
     String kafkaSecurityProtocol,
     String kafkaSaslMechanism,
     String kafkaSaslJaasConfig,
@@ -36,6 +37,7 @@ public record IngesterConfig(
         String network = envOrDefault(env, "NETWORK_NAME", "giwa-sepolia");
         String kafkaBootstrapServers = envOrDefault(env, "KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
         String kafkaTopic = envOrDefault(env, "KAFKA_TOPIC", "chain.logs.raw");
+        String kafkaDlqTopic = envOrDefault(env, "KAFKA_DLQ_TOPIC", "chain.logs.dlq");
         String kafkaSecurityProtocol = envOrDefault(env, "KAFKA_SECURITY_PROTOCOL", "");
         String kafkaSaslMechanism = envOrDefault(env, "KAFKA_SASL_MECHANISM", "");
         String kafkaSaslJaasConfig = envOrDefault(env, "KAFKA_SASL_JAAS_CONFIG", "");
@@ -82,6 +84,7 @@ public record IngesterConfig(
             network,
             kafkaBootstrapServers,
             kafkaTopic,
+            kafkaDlqTopic,
             kafkaSecurityProtocol,
             kafkaSaslMechanism,
             kafkaSaslJaasConfig,

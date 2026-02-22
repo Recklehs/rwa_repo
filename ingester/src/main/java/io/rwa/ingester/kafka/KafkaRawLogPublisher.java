@@ -13,12 +13,12 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 public class KafkaRawLogPublisher implements AutoCloseable {
 
-    private final String topic;
+    private final String defaultTopic;
     private final ObjectMapper objectMapper;
     private final KafkaProducer<String, String> producer;
 
     public KafkaRawLogPublisher(IngesterConfig config, ObjectMapper objectMapper) {
-        this.topic = config.kafkaTopic();
+        this.defaultTopic = config.kafkaTopic();
         this.objectMapper = objectMapper;
 
         Properties props = new Properties();
@@ -48,6 +48,10 @@ public class KafkaRawLogPublisher implements AutoCloseable {
     }
 
     public void publish(String key, ObjectNode payload) throws Exception {
+        publish(defaultTopic, key, payload);
+    }
+
+    public void publish(String topic, String key, ObjectNode payload) throws Exception {
         String value = objectMapper.writeValueAsString(payload);
         producer.send(new ProducerRecord<>(topic, key, value)).get();
     }
