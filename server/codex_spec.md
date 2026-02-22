@@ -252,8 +252,20 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 ## Implementation Notes (project decisions)
 - Admin auth mode: `X-Admin-Token` header
 - Deterministic IDs:
-  - classId: `keccak256(lower(kaptCode)+":"+classKey)`
-  - unitId: `{kaptCode}:{classKey}:{pad5(unitNo)}`
+  - classId:
+    - default: `keccak256(lower(kaptCode)+":"+classKey)`
+    - compatibility rule for migrated public buckets:
+      - `MPAREA_LE_60 -> hash basis MPAREA_60`
+      - `MPAREA_60_85 -> hash basis MPAREA_85`
+      - `MPAREA_85_135 -> hash basis MPAREA_135`
+      - `MPAREA_GE_136 -> hash basis MPAREA_136`
+  - unitId: `{kaptCode}|{classKey}|{pad5(unitNo)}`
+- Public classKey buckets (AGENTS global alignment):
+  - `kaptMparea60 -> MPAREA_LE_60`
+  - `kaptMparea85 -> MPAREA_60_85`
+  - `kaptMparea135 -> MPAREA_85_135`
+  - `kaptMparea136 -> MPAREA_GE_136`
+  - `MPAREA_UNKNOWN` is used as delta bucket when `hoCnt` mismatch produces positive remainder.
 - Signup request contract:
   - `POST /auth/signup` requires request body field `externalUserId`.
   - `provider` is optional and defaults to `MEMBER`.
@@ -383,3 +395,17 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - `submitContractTx()` changed to independent transaction boundary (`REQUIRES_NEW`) and preserves FAILED outbox traces.
   - Impacted files/components:
     - `server/src/main/java/io/rwa/server/tx/TxOrchestratorService.java`
+- 2026-02-22: Aligned public asset bucket/unit ID conventions with AGENTS global rules.
+  - Updated classKey mapping in public import:
+    - `kaptMparea60 -> MPAREA_LE_60`
+    - `kaptMparea85 -> MPAREA_60_85`
+    - `kaptMparea135 -> MPAREA_85_135`
+    - `kaptMparea136 -> MPAREA_GE_136`
+  - Updated unitId format to `{kaptCode}|{classKey}|{pad5(unitNo)}`.
+  - Added DB migration for existing rows:
+    - `V12__asset_key_alignment_agents.sql` (legacy classKey rename + unitId format rewrite)
+  - Kept `class_id` stable by using legacy hash-basis compatibility mapping in code.
+  - Impacted files/components:
+    - `server/src/main/java/io/rwa/server/publicdata/PublicDataService.java`
+    - `server/src/test/java/io/rwa/server/publicdata/PublicDataRepositoryJpaIntegrationTest.java`
+    - `server/src/main/resources/db/migration/V12__asset_key_alignment_agents.sql`

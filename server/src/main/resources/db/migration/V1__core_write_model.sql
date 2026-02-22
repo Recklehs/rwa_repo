@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS classes (
   -- 예시: 'A10027831'
   kapt_code TEXT NOT NULL REFERENCES complexes(kapt_code),
   -- 클래스 구분 키(평형 그룹).
-  -- 예시: 'MPAREA_85'
+  -- 예시: 'MPAREA_85_135'
   class_key TEXT NOT NULL,
   -- 해당 클래스의 총 유닛 수.
   -- 예시: 120
@@ -96,8 +96,8 @@ CREATE TABLE IF NOT EXISTS classes (
 
 -- units: 클래스 내부의 개별 유닛(분할 단위) 상태와 토큰 ID를 저장하는 테이블
 CREATE TABLE IF NOT EXISTS units (
-  -- 유닛 고유 ID(일반적으로 'kapt_code:class_key:00001' 형식).
-  -- 예시: 'A10027831:MPAREA_85:00001'
+  -- 유닛 고유 ID(일반적으로 'kapt_code|class_key|00001' 형식).
+  -- 예시: 'A10027831|MPAREA_85_135|00001'
   unit_id TEXT PRIMARY KEY,
   -- 소속 클래스 ID(FK -> classes.class_id).
   -- 예시: '0x7c0c8b2f0f2b8f9d4e15a7e8df31ad0f6a9f7d6f5c4b3a291817161514131211'

@@ -91,17 +91,17 @@ class PublicDataRepositoryJpaIntegrationTest {
     @DisplayName("PropertyClassRepository는 kaptCode 기준 classKey 오름차순으로 조회한다")
     void propertyClassRepositoryShouldOrderByClassKey() {
         // given: 동일 kaptCode에 classKey가 다른 클래스를 저장한다.
-        saveClass("class-85", "KAPT-001", "MPAREA_85", 20);
-        saveClass("class-60", "KAPT-001", "MPAREA_60", 10);
+        saveClass("class-60-85", "KAPT-001", "MPAREA_60_85", 20);
+        saveClass("class-le-60", "KAPT-001", "MPAREA_LE_60", 10);
         entityManager.flush();
         entityManager.clear();
 
         // when: kaptCode 기준 정렬 조회를 실행한다.
         List<PropertyClassEntity> classes = propertyClassRepository.findByKaptCodeOrderByClassKeyAsc("KAPT-001");
 
-        // then: classKey가 사전순(60, 85)으로 반환된다.
+        // then: classKey가 사전순(60_85, LE_60)으로 반환된다.
         assertThat(classes).hasSize(2);
-        assertThat(classes).extracting(PropertyClassEntity::getClassKey).containsExactly("MPAREA_60", "MPAREA_85");
+        assertThat(classes).extracting(PropertyClassEntity::getClassKey).containsExactly("MPAREA_60_85", "MPAREA_LE_60");
     }
 
     private void saveUnit(String unitId, String classId, int unitNo, BigInteger tokenId, String status) {

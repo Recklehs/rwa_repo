@@ -21,6 +21,15 @@ public class PublicDataService {
 
     public static final String CLASS_STATUS_IMPORTED = "IMPORTED";
     public static final String CLASS_STATUS_TOKENIZED = "TOKENIZED";
+    public static final String CLASS_KEY_MPAREA_LE_60 = "MPAREA_LE_60";
+    public static final String CLASS_KEY_MPAREA_60_85 = "MPAREA_60_85";
+    public static final String CLASS_KEY_MPAREA_85_135 = "MPAREA_85_135";
+    public static final String CLASS_KEY_MPAREA_GE_136 = "MPAREA_GE_136";
+    public static final String CLASS_KEY_MPAREA_UNKNOWN = "MPAREA_UNKNOWN";
+    private static final String LEGACY_CLASS_KEY_MPAREA_60 = "MPAREA_60";
+    private static final String LEGACY_CLASS_KEY_MPAREA_85 = "MPAREA_85";
+    private static final String LEGACY_CLASS_KEY_MPAREA_135 = "MPAREA_135";
+    private static final String LEGACY_CLASS_KEY_MPAREA_136 = "MPAREA_136";
 
     private final ComplexRepository complexRepository;
     private final PropertyClassRepository classRepository;
@@ -58,15 +67,15 @@ public class PublicDataService {
         complexRepository.save(complex);
 
         Map<String, Integer> classCounts = new LinkedHashMap<>();
-        putIfPositive(classCounts, "MPAREA_60", intValue(rawItemJson, "kaptMparea60"));
-        putIfPositive(classCounts, "MPAREA_85", intValue(rawItemJson, "kaptMparea85"));
-        putIfPositive(classCounts, "MPAREA_135", intValue(rawItemJson, "kaptMparea135"));
-        putIfPositive(classCounts, "MPAREA_136", intValue(rawItemJson, "kaptMparea136"));
+        putIfPositive(classCounts, CLASS_KEY_MPAREA_LE_60, intValue(rawItemJson, "kaptMparea60"));
+        putIfPositive(classCounts, CLASS_KEY_MPAREA_60_85, intValue(rawItemJson, "kaptMparea85"));
+        putIfPositive(classCounts, CLASS_KEY_MPAREA_85_135, intValue(rawItemJson, "kaptMparea135"));
+        putIfPositive(classCounts, CLASS_KEY_MPAREA_GE_136, intValue(rawItemJson, "kaptMparea136"));
 
         int sumClassCount = classCounts.values().stream().mapToInt(Integer::intValue).sum();
         int delta = hoCnt - sumClassCount;
         if (delta > 0) {
-            classCounts.put("MPAREA_UNKNOWN", delta);
+            classCounts.put(CLASS_KEY_MPAREA_UNKNOWN, delta);
         }
 
         for (Map.Entry<String, Integer> entry : classCounts.entrySet()) {
@@ -196,17 +205,28 @@ public class PublicDataService {
     }
 
     public String deriveClassId(String kaptCode, String classKey) {
-        return Hash.sha3String((kaptCode + ":" + classKey).toLowerCase());
+        // Keep legacy hash basis for migrated public buckets so existing class_id values remain stable.
+        return Hash.sha3String((kaptCode + ":" + classKeyForHash(classKey)).toLowerCase());
     }
 
     public String deriveUnitId(String kaptCode, String classKey, int unitNo) {
-        return kaptCode + ":" + classKey + ":" + String.format("%05d", unitNo);
+        return kaptCode + "|" + classKey + "|" + String.format("%05d", unitNo);
     }
 
     private void putIfPositive(Map<String, Integer> map, String key, int value) {
         if (value > 0) {
             map.put(key, value);
         }
+    }
+
+    private String classKeyForHash(String classKey) {
+        return switch (classKey) {
+            case CLASS_KEY_MPAREA_LE_60 -> LEGACY_CLASS_KEY_MPAREA_60;
+            case CLASS_KEY_MPAREA_60_85 -> LEGACY_CLASS_KEY_MPAREA_85;
+            case CLASS_KEY_MPAREA_85_135 -> LEGACY_CLASS_KEY_MPAREA_135;
+            case CLASS_KEY_MPAREA_GE_136 -> LEGACY_CLASS_KEY_MPAREA_136;
+            default -> classKey;
+        };
     }
 
     private String requiredText(JsonNode raw, String field) {

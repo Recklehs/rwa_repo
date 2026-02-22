@@ -1,6 +1,6 @@
 # Codex Spec Tracker
 
-Last updated: 2026-02-15 (post-live deploy)
+Last updated: 2026-02-22 (spec sync)
 
 ## Canonical Baseline (Current)
 
@@ -177,7 +177,8 @@ Last updated: 2026-02-15 (post-live deploy)
   - `CONFIRMATIONS = 12`
 
 ### Event signature registry
-- `shared/events/signatures.json` is currently empty and must be populated when ingester/flink event parsing is implemented.
+- `shared/events/signatures.json` is populated and used by ingester/flink runtime loaders.
+- Includes deployed-address-bound event catalog, enabled flags, dedup format, confirmations, and unknown event policy.
 
 ## Integration Guidance (Server / Ingester / Flink)
 
@@ -188,7 +189,6 @@ Last updated: 2026-02-15 (post-live deploy)
 4. Build event indexing from contract events (`Listed`, `Bought`, `Cancelled`, registry/tokenizer/share ownership+mint events) and maintain idempotency by tx hash + log index.
 
 ### Current gaps to schedule
-- Populate `shared/events/signatures.json`.
 - Align DB schema/indexing strategy in `shared/db/ddl.sql` with actual emitted events and identifiers.
 - Clean stale localhost artifacts that still include legacy allowlist keys to avoid confusion in tooling.
 
@@ -207,3 +207,6 @@ Last updated: 2026-02-15 (post-live deploy)
 - Live deploy to GIWA Sepolia completed.
 - Bootstrap ownership transfers executed and validated.
 - Blockscout verification completed for all deployed contracts.
+
+### 2026-02-22
+- Synced spec text with current shared event catalog state (`shared/events/signatures.json` populated).
