@@ -72,6 +72,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 ### A) Custodial + compliance
 - `users(user_id uuid PK default uuidv7(), created_at timestamptz, compliance_status text, compliance_updated_at timestamptz)`
 - `wallets(user_id uuid PK FK users, address varchar(42) unique, encrypted_privkey bytea, enc_version int, created_at timestamptz)`
+- `user_external_links(id bigserial PK, provider text, external_user_id text, user_id uuid FK users, created_at timestamptz, updated_at timestamptz, UNIQUE(provider, external_user_id), UNIQUE(provider, user_id))`
 
 ### B) Public data store
 - `complexes(kapt_code PK, kapt_name, kapt_addr, doro_juso, ho_cnt, raw_json jsonb, fetched_at timestamptz)`
@@ -82,10 +83,10 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `outbox_tx(outbox_id uuid PK, request_id text UNIQUE NOT NULL, from_address varchar(42) NOT NULL, to_address varchar(42), nonce bigint, tx_hash varchar(66), raw_tx text, status text NOT NULL, tx_type text NOT NULL, payload jsonb, last_error text, created_at timestamptz default now(), updated_at timestamptz default now())`
 
 ### D) Read model (server reads only)
-- `processed_events(...)`
-- `listings(...)`
-- `trades(...)`
-- `balances(...)`
+- `processed_events(id bigserial PK, event_key text, block_number bigint, tx_hash text, payload jsonb, created_at timestamptz)`
+- `listings(id bigserial PK, property_id text, listing_status text, price numeric, created_at timestamptz, updated_at timestamptz)`
+- `trades(id bigserial PK, listing_id bigint, buyer text, seller text, tx_hash text, traded_at timestamptz, amount numeric)`
+- `balances(owner text PK, token_id bigint, amount numeric, updated_at timestamptz)`
 
 ### E) API Idempotency table
 - `api_idempotency(endpoint text NOT NULL, idempotency_key text NOT NULL, request_hash varchar(64) NOT NULL, status text NOT NULL, response_status int, response_body jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now(), primary key(endpoint, idempotency_key))`
@@ -158,7 +159,8 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `Idempotency-Key` required on all mutating endpoints
 
 ## 7) Core REST APIs (minimum)
-- `POST /auth/signup`
+- `POST /auth/signup` (body: `externalUserId` required, `provider` optional default `MEMBER`)
+- `GET /admin/users/by-external?externalUserId=...&provider=...`
 - `POST /admin/compliance/approve`
 - `POST /admin/compliance/revoke`
 - `GET /admin/compliance/users`
@@ -193,11 +195,13 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 
 ## 10) JUnit test coverage (implemented: 2026-02-17)
 - Test execution command: `cd server && ./gradlew test`
-- Latest result: `18 tests, 0 failures, 0 errors`
+- Latest result: `30 tests, 0 failures, 0 errors, 1 skipped`
 
 ### Unit tests
 - `server/src/test/java/io/rwa/server/wallet/WalletServiceTest.java`
-  - `signup()` persists `users/wallets`, encrypts private key, publishes `UserSignedUp` outbox event payload.
+  - `signup(externalUserId, provider)` persists `users/wallets/user_external_links`, encrypts private key, publishes `UserSignedUp` outbox event payload.
+  - Existing external mapping returns existing `userId/address` without re-creating wallet.
+  - SQLState 기반 `RETURNING` fallback 분기(호환 케이스만 fallback, non-compat grammar는 fail-fast) 검증.
   - `assertApproved()` rejects non-approved users with `403`.
   - `getWallet()` returns `404` when wallet row is missing.
 - `server/src/test/java/io/rwa/server/trade/TradeServiceTest.java`
@@ -209,12 +213,15 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 ### Web integration tests (MockMvc)
 - `server/src/test/java/io/rwa/server/auth/AuthIdempotencyIntegrationTest.java`
   - `/auth/signup` without `Idempotency-Key` returns `400`.
-  - First request with key stores completed idempotency response.
+  - First request with key stores completed idempotency response (including `externalUserId/provider/created`).
   - Repeated request with same key returns stored response (replay) and skips `walletService.signup()`.
 - `server/src/test/java/io/rwa/server/auth/AuthSignupDbDefaultIntegrationTest.java`
-  - Verifies `/auth/signup` persists `users/wallets` with DB-generated `users.user_id` (uuid v7).
+  - Verifies `/auth/signup` persists `users/wallets/user_external_links` with DB-generated `users.user_id` (uuid v7).
   - Verifies returned `userId` is UUID v7 and persisted user compliance defaults are `PENDING`.
   - Runs only when `-DrunPg18Integration=true` (PG18 integration gate).
+- `server/src/test/java/io/rwa/server/auth/AdminUserQueryControllerTest.java`
+  - `/admin/users/by-external` without `X-Admin-Token` returns `401`.
+  - Same endpoint with valid token returns linked `userId/address` payload.
 - `server/src/test/java/io/rwa/server/compliance/ComplianceAdminTokenIntegrationTest.java`
   - `/admin/compliance/users` without `X-Admin-Token` returns `401`.
   - Same endpoint with valid token returns `200` and mapped user compliance payload.
@@ -236,9 +243,15 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Deterministic IDs:
   - classId: `keccak256(lower(kaptCode)+":"+classKey)`
   - unitId: `{kaptCode}:{classKey}:{pad5(unitNo)}`
+- Signup request contract:
+  - `POST /auth/signup` requires request body field `externalUserId`.
+  - `provider` is optional and defaults to `MEMBER`.
+  - Existing `(provider, externalUserId)` mapping returns existing wallet (`created=false`).
 - User ID generation:
   - `users.user_id` is generated by DB default `uuidv7()`.
-  - JPA mapping uses `@GeneratedValue(strategy = GenerationType.IDENTITY)` and consumes DB-generated UUID.
+  - `signup()` first tries SQL `INSERT ... RETURNING user_id`.
+  - Fallback to explicit app-generated UUIDv7 insert is allowed only for SQL syntax/feature-unsupported (`SQLState 42601 / 0A000`) compatibility around `RETURNING`.
+  - Non-compat SQL grammar failures must fail fast with migration guidance (`V1~V10`).
 - Kafka mode: feature flag (`outbox.kafka.enabled`)
 - Java baseline: 17 (repository/runtime aligned)
 
@@ -286,3 +299,32 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Updated signup flow to persist `UserEntity` first and consume DB-generated `user_id`.
   - Added `V6__users_uuidv7_default.sql` migration to enforce DB default on existing tables.
   - Added `AuthSignupDbDefaultIntegrationTest` (opt-in via `-DrunPg18Integration=true`) to verify `/auth/signup` DB-default UUID behavior.
+- 2026-02-22: Fixed smoke/runtime issues found during end-to-end execution.
+  - Updated `WalletService.signup()` to use SQL `INSERT ... RETURNING user_id` for deterministic DB-default UUID retrieval.
+  - Added fallback path to explicit app-generated UUIDv7 insert when `RETURNING` query translation fails.
+  - Removed `@GeneratedValue(strategy = GenerationType.IDENTITY)` from `UserEntity` to avoid UUID identity strategy mismatches.
+  - Added JSONB write casting for JPA string fields: `ComplexEntity.rawJson`, `OutboxTxEntity.payload` (`?::jsonb`).
+  - Improved `server/scripts/smoke_e2e.sh` with API-error fail-fast checks and automatic listingId discovery when `BUY_LISTING_ID` is omitted.
+  - Updated smoke docs in `server/scripts/README.md` for new auto-listing behavior.
+- 2026-02-22: Added external user linkage for signup and admin lookup APIs.
+  - Added `V7__user_external_links.sql` and `user_external_links` mapping table (`provider + external_user_id -> user_id`).
+  - Updated `/auth/signup` contract to require `externalUserId` request body (`provider` optional, default `MEMBER`).
+  - Updated wallet signup flow to reuse existing linked wallet for duplicate external IDs and return `created` flag.
+  - Added `/admin/users/by-external` endpoint for admin-side user/address lookup by external identifier.
+  - Updated smoke script and auth/wallet tests for new signup request/response contract.
+- 2026-02-22: Added defensive schema reconciliation for legacy DBs.
+  - Added `V8__users_schema_reconcile.sql` to backfill/repair `users` core columns when prior environments drifted.
+  - Tightened signup fallback handling so non-`RETURNING` SQL grammar errors fail fast with migration guidance.
+- 2026-02-22: Hardened outbox insert compatibility for legacy DB/runtime drift.
+  - Updated outbox insert binding to pass `occurred_at` as explicit JDBC timestamp type (Instant inference-safe).
+  - Removed hard cast `CAST(:payload AS jsonb)` in outbox insert to tolerate jsonb/text drift while preserving JSON payload.
+  - Added `V9__outbox_schema_reconcile.sql` to defensively ensure `outbox_event/outbox_delivery` core columns/constraints/defaults exist.
+- 2026-02-22: Completed server DB compatibility/drift audit and applied fixes.
+  - Updated `IdempotencyService` to remove hard `CAST(:responseBody AS jsonb)` so `api_idempotency.response_body` writes tolerate jsonb/text drift.
+  - Tightened `WalletService` `BadSqlGrammarException` fallback gating to SQLState-based `RETURNING` compatibility only, with explicit schema-mismatch errors for non-compat failures.
+  - Added `V10__read_model_schema_bootstrap.sql` so read-model dependencies (`processed_events/listings/trades/balances`) exist before query endpoints are called.
+- 2026-02-22: Fixed `/auth/signup` outbox insert SQL-grammar failures caused by payload type binding drift.
+  - Updated `OutboxRepository.insertEventAndInitDelivery()` to detect `outbox_event.payload` column type from `information_schema` and choose SQL accordingly:
+    - `jsonb` column: `CAST(:payload AS jsonb)`
+    - non-`jsonb` column: plain `:payload` binding
+  - Added `OutboxRepositoryTest` to validate SQL selection for both column type cases.

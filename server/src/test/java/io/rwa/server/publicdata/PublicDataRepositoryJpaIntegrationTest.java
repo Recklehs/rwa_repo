@@ -68,6 +68,26 @@ class PublicDataRepositoryJpaIntegrationTest {
     }
 
     @Test
+    @DisplayName("UnitRepository는 tokenId가 있는 유닛만 tokenId 오름차순으로 조회한다")
+    void unitRepositoryShouldReturnOnlyIssuedUnitsInTokenOrder() {
+        // given: tokenId가 null인 유닛과 발행된 유닛을 함께 저장한다.
+        saveUnit("unit-null", "class-issued", 1, null, "IMPORTED");
+        saveUnit("unit-200", "class-issued", 2, BigInteger.valueOf(200), "TOKENIZED");
+        saveUnit("unit-100", "class-issued", 3, BigInteger.valueOf(100), "TOKENIZED");
+        entityManager.flush();
+        entityManager.clear();
+
+        // when: 발행 완료(tokenId not null) 유닛 목록을 조회한다.
+        List<UnitEntity> issuedUnits = unitRepository.findByTokenIdIsNotNullOrderByTokenIdAsc();
+
+        // then: tokenId가 있는 유닛만 오름차순으로 반환된다.
+        assertThat(issuedUnits).hasSize(2);
+        assertThat(issuedUnits).extracting(UnitEntity::getUnitId).containsExactly("unit-100", "unit-200");
+        assertThat(issuedUnits).extracting(UnitEntity::getTokenId)
+            .containsExactly(BigInteger.valueOf(100), BigInteger.valueOf(200));
+    }
+
+    @Test
     @DisplayName("PropertyClassRepository는 kaptCode 기준 classKey 오름차순으로 조회한다")
     void propertyClassRepositoryShouldOrderByClassKey() {
         // given: 동일 kaptCode에 classKey가 다른 클래스를 저장한다.

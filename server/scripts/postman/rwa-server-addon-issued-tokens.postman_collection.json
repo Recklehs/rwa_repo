@@ -1,0 +1,52 @@
+{
+  "info": {
+    "_postman_id": "2a6019f0-aed9-4f56-b4a1-3b28e151f8ab",
+    "name": "RWA Server Addon - Issued Tokens",
+    "description": "Single-request addon collection. Import this and copy the request into your existing collection to keep prior response history.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "item": [
+    {
+      "name": "Issued Tokens (All)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/tokens",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "tokens"
+          ]
+        },
+        "description": "DB 기준으로 발행 완료된 전체 토큰(unit tokenId not null) 목록을 조회합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+              "const arr = pm.response.json();",
+              "pm.test(\"response is array\", function () { pm.expect(Array.isArray(arr)).to.eql(true); });",
+              "if (arr.length > 0) {",
+              "  pm.test(\"tokenId exists on first row\", function () {",
+              "    pm.expect(arr[0].tokenId).to.not.eql(null);",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ],
+      "description": "DB 기준으로 발행 완료된 전체 토큰(unit tokenId not null) 목록을 조회합니다."
+    }
+  ]
+}
