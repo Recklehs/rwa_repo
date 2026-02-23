@@ -41,6 +41,9 @@ import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
     "rwa.master-key-base64=MDEyMzQ1Njc4OWFiY2RlZg==",
+    "rwa.auth.mode=LOCAL",
+    "rwa.auth.local-auth-enabled=true",
+    "rwa.auth.hmac-secret-base64=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     "rwa.outbox.kafka-enabled=false",
     "spring.task.scheduling.enabled=false",
     "spring.flyway.enabled=false",
@@ -191,7 +194,7 @@ class AuthSignupDbDefaultIntegrationTest {
             jdbcTemplate.update(
                 "DELETE FROM api_idempotency WHERE endpoint = :endpoint AND idempotency_key = :key",
                 Map.of(
-                    "endpoint", "POST /auth/signup",
+                    "endpoint", "POST /auth/signup_local",
                     "key", usedIdempotencyKey
                 )
             );
@@ -206,7 +209,7 @@ class AuthSignupDbDefaultIntegrationTest {
         createdExternalUserId = "it-ext-" + UUID.randomUUID();
 
         MvcResult result = mockMvc.perform(
-                post("/auth/signup")
+                post("/auth/signup_local")
                     .header("Idempotency-Key", usedIdempotencyKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"externalUserId\":\"" + createdExternalUserId + "\"}")

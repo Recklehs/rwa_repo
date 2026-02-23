@@ -1,6 +1,8 @@
 package io.rwa.server.config;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "rwa")
@@ -13,10 +15,14 @@ public class RwaProperties {
     private String issuerPrivateKey;
     private String treasuryPrivateKey;
     private String adminApiToken;
+    private String serviceToken;
+    private String serviceTokenHeader = "X-Service-Token";
+    private List<String> internalPaths = new ArrayList<>(List.of("/internal/**"));
     private long nonceLockTimeoutMs = 5000L;
     private final Tx tx = new Tx();
     private final GasSponsor gasSponsor = new GasSponsor();
     private final Outbox outbox = new Outbox();
+    private final Auth auth = new Auth();
 
     public String getSharedDirPath() {
         return sharedDirPath;
@@ -74,6 +80,30 @@ public class RwaProperties {
         this.adminApiToken = adminApiToken;
     }
 
+    public String getServiceToken() {
+        return serviceToken;
+    }
+
+    public void setServiceToken(String serviceToken) {
+        this.serviceToken = serviceToken;
+    }
+
+    public String getServiceTokenHeader() {
+        return serviceTokenHeader;
+    }
+
+    public void setServiceTokenHeader(String serviceTokenHeader) {
+        this.serviceTokenHeader = serviceTokenHeader;
+    }
+
+    public List<String> getInternalPaths() {
+        return internalPaths;
+    }
+
+    public void setInternalPaths(List<String> internalPaths) {
+        this.internalPaths = internalPaths == null ? new ArrayList<>() : new ArrayList<>(internalPaths);
+    }
+
     public long getNonceLockTimeoutMs() {
         return nonceLockTimeoutMs;
     }
@@ -92,6 +122,10 @@ public class RwaProperties {
 
     public Outbox getOutbox() {
         return outbox;
+    }
+
+    public Auth getAuth() {
+        return auth;
     }
 
     public static class Tx {
@@ -333,6 +367,90 @@ public class RwaProperties {
 
         public void setQueueCapacity(int queueCapacity) {
             this.queueCapacity = queueCapacity;
+        }
+    }
+
+    public static class Auth {
+        private String mode = "JWKS";
+        private String jwksUrl;
+        private String jwtIssuer = "rwa-id-server";
+        private String jwtAudience = "rwa-custody";
+        private long clockSkewSeconds = 60L;
+        private List<String> requiredPaths = new ArrayList<>(List.of("/trade/**", "/me/**", "/wallet/**"));
+        private long jwksCacheSeconds = 600L;
+        private String hmacSecretBase64;
+        private boolean localAuthEnabled;
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public String getJwksUrl() {
+            return jwksUrl;
+        }
+
+        public void setJwksUrl(String jwksUrl) {
+            this.jwksUrl = jwksUrl;
+        }
+
+        public String getJwtIssuer() {
+            return jwtIssuer;
+        }
+
+        public void setJwtIssuer(String jwtIssuer) {
+            this.jwtIssuer = jwtIssuer;
+        }
+
+        public String getJwtAudience() {
+            return jwtAudience;
+        }
+
+        public void setJwtAudience(String jwtAudience) {
+            this.jwtAudience = jwtAudience;
+        }
+
+        public long getClockSkewSeconds() {
+            return clockSkewSeconds;
+        }
+
+        public void setClockSkewSeconds(long clockSkewSeconds) {
+            this.clockSkewSeconds = clockSkewSeconds;
+        }
+
+        public List<String> getRequiredPaths() {
+            return requiredPaths;
+        }
+
+        public void setRequiredPaths(List<String> requiredPaths) {
+            this.requiredPaths = requiredPaths == null ? new ArrayList<>() : new ArrayList<>(requiredPaths);
+        }
+
+        public long getJwksCacheSeconds() {
+            return jwksCacheSeconds;
+        }
+
+        public void setJwksCacheSeconds(long jwksCacheSeconds) {
+            this.jwksCacheSeconds = jwksCacheSeconds;
+        }
+
+        public String getHmacSecretBase64() {
+            return hmacSecretBase64;
+        }
+
+        public void setHmacSecretBase64(String hmacSecretBase64) {
+            this.hmacSecretBase64 = hmacSecretBase64;
+        }
+
+        public boolean isLocalAuthEnabled() {
+            return localAuthEnabled;
+        }
+
+        public void setLocalAuthEnabled(boolean localAuthEnabled) {
+            this.localAuthEnabled = localAuthEnabled;
         }
     }
 }

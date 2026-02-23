@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.rwa.server.config.RwaProperties;
 import io.rwa.server.idempotency.IdempotencyInterceptor;
+import io.rwa.server.security.HmacJwtVerifier;
+import io.rwa.server.security.JwksJwtVerifier;
 import io.rwa.server.wallet.ComplianceStatus;
 import io.rwa.server.wallet.UserEntity;
 import java.time.Instant;
@@ -39,6 +41,12 @@ class ComplianceAdminTokenIntegrationTest {
 
     @MockBean
     private RwaProperties properties;
+
+    @MockBean
+    private JwksJwtVerifier jwksJwtVerifier;
+
+    @MockBean
+    private HmacJwtVerifier hmacJwtVerifier;
 
     @BeforeEach
     void setUp() throws Exception {

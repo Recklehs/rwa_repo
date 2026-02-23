@@ -40,7 +40,20 @@ rwa:
   issuer-private-key: ${ISSUER_PRIVATE_KEY:}
   treasury-private-key: ${TREASURY_PRIVATE_KEY:}
   admin-api-token: ${ADMIN_API_TOKEN:}
+  service-token: ${SERVICE_TOKEN:}
+  service-token-header: ${SERVICE_TOKEN_HEADER:X-Service-Token}
+  internal-paths: ${INTERNAL_PATHS:/internal/**}
   nonce-lock-timeout-ms: ${NONCE_LOCK_TIMEOUT_MS:5000}
+  auth:
+    mode: ${AUTH_MODE:JWKS}
+    jwks-url: ${AUTH_JWKS_URL:}
+    jwt-issuer: ${AUTH_JWT_ISSUER:rwa-id-server}
+    jwt-audience: ${AUTH_JWT_AUDIENCE:rwa-custody}
+    clock-skew-seconds: ${AUTH_CLOCK_SKEW_SECONDS:60}
+    required-paths: ${AUTH_REQUIRED_PATHS:/trade/**,/me/**,/wallet/**}
+    jwks-cache-seconds: ${AUTH_JWKS_CACHE_SECONDS:600}
+    hmac-secret-base64: ${AUTH_HMAC_SECRET_BASE64:}
+    local-auth-enabled: ${LOCAL_AUTH_ENABLED:false}
   gas-sponsor:
     enabled: ${GAS_SPONSOR_ENABLED:true}
     station-private-key: ${GAS_STATION_PRIVATE_KEY:}
