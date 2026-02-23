@@ -1,12 +1,15 @@
 package io.rwa.ingester.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.ingester.config.IngesterConfig;
 import io.rwa.ingester.config.SharedResources;
 import io.rwa.ingester.config.UnknownEventPolicy;
 import io.rwa.ingester.state.StateStore;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.util.List;
@@ -56,6 +59,38 @@ class LogIngestionServiceTest {
         );
 
         assertEquals("chain.logs.raw", service.resolveDestinationTopic(false));
+    }
+
+    @Test
+    void publishWindowLogs_unknownEventWithFailPolicy_throwsImmediately() throws Exception {
+        LogIngestionService service = new LogIngestionService(
+            config(),
+            sharedResources(UnknownEventPolicy.FAIL),
+            null,
+            new NoopStateStore(),
+            null,
+            new ObjectMapper()
+        );
+
+        org.web3j.protocol.core.methods.response.Log unknownLog = new org.web3j.protocol.core.methods.response.Log();
+        unknownLog.setAddress("0x0000000000000000000000000000000000000001");
+        unknownLog.setTopics(List.of("0x1234"));
+        unknownLog.setBlockNumber("0x1");
+        unknownLog.setLogIndex("0x0");
+
+        Method publishWindowLogs = LogIngestionService.class.getDeclaredMethod("publishWindowLogs", List.class);
+        publishWindowLogs.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(
+            InvocationTargetException.class,
+            () -> publishWindowLogs.invoke(service, List.of(unknownLog))
+        );
+
+        assertEquals("UnknownEventException", thrown.getCause().getClass().getSimpleName());
+        assertEquals(
+            "Unknown event for address/topic0: 0x0000000000000000000000000000000000000001/0x1234",
+            thrown.getCause().getMessage()
+        );
     }
 
     private IngesterConfig config() {

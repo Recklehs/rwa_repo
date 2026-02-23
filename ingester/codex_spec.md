@@ -209,3 +209,6 @@ Ordering guidance:
   - Added `KAFKA_DLQ_TOPIC` runtime config (default `chain.logs.dlq`).
   - Added topic-aware Kafka publish API and routing logic in ingestion service.
   - Added unknown-event DLQ metadata fields (`routedToDlq`, `dlqReason`, `sourceTopic`, `destinationTopic`).
+- 2026-02-23: Fixed unknown-event `FAIL` handling to match loop-level retry semantics.
+  - Unknown event on `FAIL` now throws out of per-log publish retry loop.
+  - Polling loop retries the same window without advancing checkpoint, per spec.

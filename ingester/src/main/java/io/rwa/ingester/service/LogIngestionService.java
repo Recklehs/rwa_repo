@@ -38,6 +38,7 @@ public class LogIngestionService {
     private final StateStore stateStore;
     private final KafkaRawLogPublisher kafkaPublisher;
     private final ObjectMapper objectMapper;
+    private static final String UNKNOWN_EVENT_ERROR_PREFIX = "Unknown event for address/topic0: ";
 
     public LogIngestionService(
         IngesterConfig config,
@@ -201,6 +202,8 @@ public class LogIngestionService {
                         publishEnvelope.payload()
                     );
                     break;
+                } catch (UnknownEventException e) {
+                    throw e;
                 } catch (InterruptedException e) {
                     throw e;
                 } catch (Exception e) {
@@ -224,9 +227,7 @@ public class LogIngestionService {
             return Optional.empty();
         }
         if (matchedEvent.isEmpty() && shared.unknownEventPolicy() == UnknownEventPolicy.FAIL) {
-            throw new IllegalStateException(
-                "Unknown event for address/topic0: " + contractAddress + "/" + topic0
-            );
+            throw new UnknownEventException(UNKNOWN_EVENT_ERROR_PREFIX + contractAddress + "/" + topic0);
         }
 
         ObjectNode value = objectMapper.createObjectNode();
@@ -379,5 +380,12 @@ public class LogIngestionService {
     }
 
     private record PublishEnvelope(String topic, ObjectNode payload) {
+    }
+
+    private static class UnknownEventException extends RuntimeException {
+
+        UnknownEventException(String message) {
+            super(message);
+        }
     }
 }
