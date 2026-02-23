@@ -141,14 +141,14 @@ public class PostgresReadModelSink extends RichSinkFunction<DecodedChainEvent> {
             Connection conn = ensureConnection();
 
             try {
-                // Only mutation-eligible events are deduped so filtered events can be reprocessed during backfills.
-                if (!passesFilter(conn, event)) {
+                boolean inserted = insertProcessedEvent(event);
+                if (!inserted) {
                     conn.commit();
                     return;
                 }
 
-                boolean inserted = insertProcessedEvent(event);
-                if (!inserted) {
+                // Filtering is evaluated after dedup insert in the same transaction by spec.
+                if (!passesFilter(conn, event)) {
                     conn.commit();
                     return;
                 }
