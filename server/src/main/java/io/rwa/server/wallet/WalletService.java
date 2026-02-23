@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -135,6 +136,39 @@ public class WalletService {
         }
     }
 
+    @Transactional
+    public WalletProvisionResult provisionWallet(UUID userId, String provider, String externalUserId) {
+        if (userId == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "userId is required");
+        }
+        String normalizedProvider = normalizeProvider(provider);
+        String normalizedExternalUserId = normalizeOptionalExternalUserId(externalUserId);
+        Instant now = Instant.now();
+
+        ensureUserExists(userId, now);
+
+        if (normalizedExternalUserId != null) {
+            ensureExternalLinkConsistency(userId, normalizedProvider, normalizedExternalUserId, now);
+        }
+
+        WalletCreationResult walletResult = ensureWalletForProvision(userId, now);
+        if (walletResult.created()) {
+            try {
+                gasManagerService.ensureInitialGasGranted(walletResult.wallet().getAddress());
+            } catch (Exception e) {
+                log.warn(
+                    "Initial gas grant failed after provisioning. userId={} address={} reason={}",
+                    userId,
+                    walletResult.wallet().getAddress(),
+                    e.getMessage()
+                );
+            }
+        }
+
+        UserEntity user = getUser(userId);
+        return new WalletProvisionResult(user.getUserId(), walletResult.wallet().getAddress(), user.getComplianceStatus());
+    }
+
     private UUID createUser(Instant now) {
         Timestamp nowTs = Timestamp.from(now);
         MapSqlParameterSource common = new MapSqlParameterSource()
@@ -253,7 +287,17 @@ public class WalletService {
         if (externalUserId == null || externalUserId.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "externalUserId is required");
         }
-        String normalized = externalUserId.trim();
+        return validateExternalUserId(externalUserId.trim());
+    }
+
+    private String normalizeOptionalExternalUserId(String externalUserId) {
+        if (externalUserId == null || externalUserId.isBlank()) {
+            return null;
+        }
+        return validateExternalUserId(externalUserId.trim());
+    }
+
+    private String validateExternalUserId(String normalized) {
         if (normalized.length() > MAX_EXTERNAL_USER_ID_LENGTH) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "externalUserId is too long");
         }
@@ -275,6 +319,11 @@ public class WalletService {
     public WalletEntity getWallet(UUID userId) {
         return walletRepository.findById(userId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Wallet not found for user: " + userId));
+    }
+
+    public WalletEntity getWalletOrProvisioned(UUID userId) {
+        return walletRepository.findById(userId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "WALLET_NOT_PROVISIONED"));
     }
 
     public String getAddress(UUID userId) {
@@ -303,6 +352,12 @@ public class WalletService {
             });
     }
 
+    public List<ExternalLinkView> listExternalLinks(UUID userId) {
+        return userExternalLinkRepository.findAllByUserId(userId).stream()
+            .map(link -> new ExternalLinkView(link.getProvider(), link.getExternalUserId()))
+            .toList();
+    }
+
     public void assertApproved(UUID userId) {
         UserEntity user = getUser(userId);
         if (user.getComplianceStatus() != ComplianceStatus.APPROVED) {
@@ -318,5 +373,85 @@ public class WalletService {
         ComplianceStatus complianceStatus,
         Instant complianceUpdatedAt
     ) {
+    }
+
+    private void ensureUserExists(UUID userId, Instant now) {
+        jdbcTemplate.update(
+            """
+                INSERT INTO users (user_id, created_at, compliance_status, compliance_updated_at)
+                VALUES (:userId, :createdAt, :status, :updatedAt)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+            new MapSqlParameterSource()
+                .addValue("userId", userId)
+                .addValue("createdAt", Timestamp.from(now), Types.TIMESTAMP)
+                .addValue("status", ComplianceStatus.PENDING.name())
+                .addValue("updatedAt", Timestamp.from(now), Types.TIMESTAMP)
+        );
+    }
+
+    private WalletCreationResult ensureWalletForProvision(UUID userId, Instant now) {
+        Optional<WalletEntity> existingWallet = walletRepository.findById(userId);
+        if (existingWallet.isPresent()) {
+            return new WalletCreationResult(existingWallet.get(), false);
+        }
+        return createWalletForProvision(userId, now);
+    }
+
+    private WalletCreationResult createWalletForProvision(UUID userId, Instant now) {
+        try {
+            ECKeyPair keyPair = Keys.createEcKeyPair();
+            String address = "0x" + Keys.getAddress(keyPair.getPublicKey());
+            String privateKeyHex = Numeric.toHexStringNoPrefixZeroPadded(keyPair.getPrivateKey(), 64);
+
+            WalletEntity wallet = new WalletEntity();
+            wallet.setUserId(userId);
+            wallet.setAddress(address.toLowerCase());
+            wallet.setEncryptedPrivkey(walletCryptoService.encryptPrivateKey(privateKeyHex));
+            wallet.setEncVersion(1);
+            wallet.setCreatedAt(now);
+            WalletEntity saved = walletRepository.save(wallet);
+            return new WalletCreationResult(saved, true);
+        } catch (DataIntegrityViolationException duplicate) {
+            WalletEntity existingWallet = walletRepository.findById(userId)
+                .orElseThrow(() -> duplicate);
+            return new WalletCreationResult(existingWallet, false);
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to provision wallet: " + e.getMessage());
+        }
+    }
+
+    private void ensureExternalLinkConsistency(UUID userId, String provider, String externalUserId, Instant now) {
+        Optional<UserExternalLinkEntity> existing = userExternalLinkRepository.findByProviderAndExternalUserId(provider, externalUserId);
+        if (existing.isPresent()) {
+            if (!existing.get().getUserId().equals(userId)) {
+                throw new ApiException(HttpStatus.CONFLICT, "externalUserId already linked to another user");
+            }
+            return;
+        }
+
+        Optional<UserExternalLinkEntity> linkByUser = userExternalLinkRepository.findByProviderAndUserId(provider, userId);
+        if (linkByUser.isPresent() && !externalUserId.equals(linkByUser.get().getExternalUserId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "provider already linked with different externalUserId");
+        }
+
+        try {
+            saveExternalLink(userId, provider, externalUserId, now);
+        } catch (DataIntegrityViolationException e) {
+            Optional<UserExternalLinkEntity> after = userExternalLinkRepository.findByProviderAndExternalUserId(provider, externalUserId);
+            if (after.isPresent() && after.get().getUserId().equals(userId)) {
+                return;
+            }
+            throw new ApiException(HttpStatus.CONFLICT, "externalUserId link conflict");
+        }
+    }
+
+    public record ExternalLinkView(String provider, String externalUserId) {
+    }
+
+    public record WalletProvisionResult(UUID userId, String address, ComplianceStatus complianceStatus) {
+    }
+
+    private record WalletCreationResult(WalletEntity wallet, boolean created) {
     }
 }

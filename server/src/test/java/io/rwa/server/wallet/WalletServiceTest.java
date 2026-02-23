@@ -238,4 +238,28 @@ class WalletServiceTest {
 
         verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
     }
+
+    @Test
+    @DisplayName("provisionWallet은 external link 충돌 시 지갑 생성/가스지급 없이 409를 반환한다")
+    void provisionWalletShouldRejectExternalLinkConflictBeforeWalletCreation() {
+        UUID requestedUserId = UUID.fromString("dce34653-a5a3-4ac2-b4e6-f2d1245f28e9");
+        UUID existingUserId = UUID.fromString("ad8c0d58-9f6f-46ba-833d-6ae42048c930");
+
+        UserExternalLinkEntity existingLink = new UserExternalLinkEntity();
+        existingLink.setUserId(existingUserId);
+        existingLink.setProvider("MEMBER");
+        existingLink.setExternalUserId("ext-conflict");
+
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-conflict"))
+            .thenReturn(Optional.of(existingLink));
+
+        assertThatThrownBy(() -> walletService.provisionWallet(requestedUserId, "MEMBER", "ext-conflict"))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(ex.getMessage()).contains("externalUserId");
+            });
+
+        verify(walletRepository, never()).save(any(WalletEntity.class));
+        verify(gasManagerService, never()).ensureInitialGasGranted(any());
+    }
 }

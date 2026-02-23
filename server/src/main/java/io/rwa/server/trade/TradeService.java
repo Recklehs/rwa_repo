@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +31,7 @@ public class TradeService {
     private final ContractGatewayService contractGatewayService;
     private final TxOrchestratorService txOrchestratorService;
     private final SharedConstantsLoader sharedConstantsLoader;
+    private final UserOrderService userOrderService;
     private final ObjectMapper objectMapper;
 
     public TradeService(
@@ -39,6 +41,7 @@ public class TradeService {
         ContractGatewayService contractGatewayService,
         TxOrchestratorService txOrchestratorService,
         SharedConstantsLoader sharedConstantsLoader,
+        UserOrderService userOrderService,
         ObjectMapper objectMapper
     ) {
         this.walletService = walletService;
@@ -47,13 +50,17 @@ public class TradeService {
         this.contractGatewayService = contractGatewayService;
         this.txOrchestratorService = txOrchestratorService;
         this.sharedConstantsLoader = sharedConstantsLoader;
+        this.userOrderService = userOrderService;
         this.objectMapper = objectMapper;
     }
 
-    public TradeResult list(TradeListRequest request, String idempotencyKey) {
-        walletService.assertApproved(request.sellerUserId());
-        String sellerAddress = walletService.getAddress(request.sellerUserId());
-        String sellerPrivKey = walletService.decryptUserPrivateKey(request.sellerUserId());
+    public TradeResult list(TradeListRequest request, UUID principalUserId, String idempotencyKey) {
+        UUID sellerUserId = resolveActorUserId(request.sellerUserId(), principalUserId, "sellerUserId");
+        validatePositive(request.amount(), "amount");
+        validatePositive(request.unitPrice(), "unitPrice");
+        walletService.assertApproved(sellerUserId);
+        String sellerAddress = walletService.getAddress(sellerUserId);
+        String sellerPrivKey = walletService.decryptUserPrivateKey(sellerUserId);
         BigInteger tokenId = resolveTokenId(request.tokenId(), request.unitId());
 
         List<java.util.UUID> outboxIds = new ArrayList<>();
@@ -61,33 +68,34 @@ public class TradeService {
         boolean approved = contractGatewayService.isApprovedForAll(sellerAddress, contractGatewayService.marketAddress());
         if (!approved) {
             OutboxTxEntity approvalTx = txOrchestratorService.submitContractTx(
-                idempotencyKey + ":trade:list:set-approval:" + request.sellerUserId(),
+                idempotencyKey + ":trade:list:set-approval:" + sellerUserId,
                 sellerAddress,
                 sellerPrivKey,
                 contractGatewayService.propertyShareAddress(),
                 contractGatewayService.fnSetApprovalForAll(contractGatewayService.marketAddress(), true),
                 "TRADE_SET_APPROVAL_FOR_ALL",
                 objectMapper.createObjectNode()
-                    .put("sellerUserId", request.sellerUserId().toString())
+                    .put("sellerUserId", sellerUserId.toString())
                     .put("market", contractGatewayService.marketAddress())
             );
             outboxIds.add(approvalTx.getOutboxId());
         }
 
         OutboxTxEntity listTx = txOrchestratorService.submitContractTx(
-            idempotencyKey + ":trade:list:" + request.sellerUserId() + ":" + tokenId,
+            idempotencyKey + ":trade:list:" + sellerUserId + ":" + tokenId,
             sellerAddress,
             sellerPrivKey,
             contractGatewayService.marketAddress(),
             contractGatewayService.fnMarketList(tokenId, request.amount(), request.unitPrice()),
             "TRADE_LIST",
             objectMapper.createObjectNode()
-                .put("sellerUserId", request.sellerUserId().toString())
+                .put("sellerUserId", sellerUserId.toString())
                 .put("tokenId", tokenId.toString())
                 .put("amount", request.amount().toString())
                 .put("unitPrice", request.unitPrice().toString())
         );
         outboxIds.add(listTx.getOutboxId());
+        userOrderService.recordListSubmitted(sellerUserId, tokenId, request.amount(), request.unitPrice(), idempotencyKey);
 
         return new TradeResult(
             outboxIds,
@@ -99,11 +107,14 @@ public class TradeService {
         );
     }
 
-    public TradeResult buy(TradeBuyRequest request, String idempotencyKey) {
-        walletService.assertApproved(request.buyerUserId());
+    public TradeResult buy(TradeBuyRequest request, UUID principalUserId, String idempotencyKey) {
+        UUID buyerUserId = resolveActorUserId(request.buyerUserId(), principalUserId, "buyerUserId");
+        validatePositive(request.listingId(), "listingId");
+        validatePositive(request.amount(), "amount");
+        walletService.assertApproved(buyerUserId);
 
-        String buyerAddress = walletService.getAddress(request.buyerUserId());
-        String buyerPrivKey = walletService.decryptUserPrivateKey(request.buyerUserId());
+        String buyerAddress = walletService.getAddress(buyerUserId);
+        String buyerPrivKey = walletService.decryptUserPrivateKey(buyerUserId);
 
         BigInteger unitPrice = null;
         try {
@@ -148,28 +159,28 @@ public class TradeService {
         if (allowance.compareTo(cost) < 0) {
             BigInteger approveAmount = BigInteger.TWO.pow(256).subtract(BigInteger.ONE);
             OutboxTxEntity approveTx = txOrchestratorService.submitContractTx(
-                idempotencyKey + ":trade:buy:approve:" + request.buyerUserId(),
+                idempotencyKey + ":trade:buy:approve:" + buyerUserId,
                 buyerAddress,
                 buyerPrivKey,
                 contractGatewayService.mockUsdAddress(),
                 contractGatewayService.fnMockUsdApprove(contractGatewayService.marketAddress(), approveAmount),
                 "TRADE_BUY_APPROVE",
                 objectMapper.createObjectNode()
-                    .put("buyerUserId", request.buyerUserId().toString())
+                    .put("buyerUserId", buyerUserId.toString())
                     .put("allowanceNeeded", cost.toString())
             );
             outboxIds.add(approveTx.getOutboxId());
         }
 
         OutboxTxEntity buyTx = txOrchestratorService.submitContractTx(
-            idempotencyKey + ":trade:buy:" + request.buyerUserId() + ":" + request.listingId(),
+            idempotencyKey + ":trade:buy:" + buyerUserId + ":" + request.listingId(),
             buyerAddress,
             buyerPrivKey,
             contractGatewayService.marketAddress(),
             contractGatewayService.fnMarketBuy(request.listingId(), request.amount()),
             "TRADE_BUY",
             objectMapper.createObjectNode()
-                .put("buyerUserId", request.buyerUserId().toString())
+                .put("buyerUserId", buyerUserId.toString())
                 .put("listingId", request.listingId().toString())
                 .put("amount", request.amount().toString())
                 .put("cost", cost.toString())
@@ -186,6 +197,35 @@ public class TradeService {
         );
     }
 
+    public TradeCancelResult cancel(TradeCancelRequest request, UUID principalUserId, String idempotencyKey) {
+        validatePositive(request.listingId(), "listingId");
+        walletService.assertApproved(principalUserId);
+        String sellerAddress = walletService.getAddress(principalUserId);
+        String sellerPrivKey = walletService.decryptUserPrivateKey(principalUserId);
+
+        ContractGatewayService.MarketListing chainListing = contractGatewayService.getMarketListing(request.listingId());
+        if (chainListing.status() != MARKET_STATUS_ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "Listing is not ACTIVE");
+        }
+        if (!sellerAddress.equalsIgnoreCase(chainListing.seller())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only seller can cancel this listing");
+        }
+
+        OutboxTxEntity cancelTx = txOrchestratorService.submitContractTx(
+            idempotencyKey + ":trade:cancel:" + principalUserId + ":" + request.listingId(),
+            sellerAddress,
+            sellerPrivKey,
+            contractGatewayService.marketAddress(),
+            contractGatewayService.fnMarketCancel(request.listingId()),
+            "CANCEL",
+            objectMapper.createObjectNode()
+                .put("sellerUserId", principalUserId.toString())
+                .put("listingId", request.listingId().toString())
+        );
+        userOrderService.recordCancelSubmitted(principalUserId, request.listingId(), idempotencyKey);
+        return new TradeCancelResult(cancelTx.getOutboxId(), request.listingId());
+    }
+
     private BigInteger resolveTokenId(String tokenId, String unitId) {
         if (tokenId != null && !tokenId.isBlank()) {
             return new BigInteger(tokenId);
@@ -198,5 +238,18 @@ public class TradeService {
             throw new ApiException(HttpStatus.NOT_FOUND, "Token id not found for unit: " + unitId);
         }
         return unit.get().getTokenId();
+    }
+
+    private UUID resolveActorUserId(UUID requestUserId, UUID principalUserId, String fieldName) {
+        if (requestUserId != null && !requestUserId.equals(principalUserId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, fieldName + " does not match authenticated user");
+        }
+        return principalUserId;
+    }
+
+    private void validatePositive(BigInteger value, String fieldName) {
+        if (value == null || value.signum() <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, fieldName + " must be greater than 0");
+        }
     }
 }

@@ -67,6 +67,48 @@ public class AdminAssetService {
         return new AdminAssetResult(tx.getOutboxId(), tx.getTxType(), tx.getStatus(), tx.getTxHash());
     }
 
+    public AdminAssetResult creditMockUsd(WalletCreditRequest request, String idempotencyKey) {
+        String toAddress = walletService.getAddress(request.toUserId());
+        BigInteger amount = resolveFaucetAmount(new FaucetRequest(request.toUserId(), request.amount(), request.amountHuman()));
+        String mode = normalizeCreditMode(request.mode());
+
+        if ("TRANSFER".equals(mode)) {
+            String treasuryPrivKey = requireKey(properties.getTreasuryPrivateKey(), "TREASURY_PRIVATE_KEY");
+            String treasuryAddress = Credentials.create(treasuryPrivKey).getAddress().toLowerCase();
+            OutboxTxEntity tx = txOrchestratorService.submitContractTx(
+                idempotencyKey + ":admin:credit:musd:transfer:" + request.toUserId(),
+                treasuryAddress,
+                treasuryPrivKey,
+                contractGatewayService.mockUsdAddress(),
+                contractGatewayService.fnMockUsdTransfer(toAddress, amount),
+                "ADMIN_CREDIT_MUSD_TRANSFER",
+                objectMapper.createObjectNode()
+                    .put("mode", mode)
+                    .put("toUserId", request.toUserId().toString())
+                    .put("toAddress", toAddress)
+                    .put("amount", amount.toString())
+            );
+            return new AdminAssetResult(tx.getOutboxId(), tx.getTxType(), tx.getStatus(), tx.getTxHash());
+        }
+
+        String issuerPrivKey = requireKey(properties.getIssuerPrivateKey(), "ISSUER_PRIVATE_KEY");
+        String issuerAddress = Credentials.create(issuerPrivKey).getAddress().toLowerCase();
+        OutboxTxEntity tx = txOrchestratorService.submitContractTx(
+            idempotencyKey + ":admin:credit:musd:mint:" + request.toUserId(),
+            issuerAddress,
+            issuerPrivKey,
+            contractGatewayService.mockUsdAddress(),
+            contractGatewayService.fnMintMockUsd(toAddress, amount),
+            "ADMIN_CREDIT_MUSD_MINT",
+            objectMapper.createObjectNode()
+                .put("mode", mode)
+                .put("toUserId", request.toUserId().toString())
+                .put("toAddress", toAddress)
+                .put("amount", amount.toString())
+        );
+        return new AdminAssetResult(tx.getOutboxId(), tx.getTxType(), tx.getStatus(), tx.getTxHash());
+    }
+
     public AdminAssetResult distributeShares(DistributeSharesRequest request, String idempotencyKey) {
         walletService.assertApproved(request.toUserId());
 
@@ -145,5 +187,16 @@ public class AdminAssetService {
         } catch (ArithmeticException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "amountHuman supports up to 18 decimal places");
         }
+    }
+
+    private String normalizeCreditMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return "MINT";
+        }
+        String normalized = mode.trim().toUpperCase();
+        if (!"MINT".equals(normalized) && !"TRANSFER".equals(normalized)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "mode must be MINT or TRANSFER");
+        }
+        return normalized;
     }
 }

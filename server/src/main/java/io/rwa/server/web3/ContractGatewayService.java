@@ -135,10 +135,23 @@ public class ContractGatewayService {
         return new Function("buy", List.of(new Uint256(listingId), new Uint256(amount)), List.of());
     }
 
+    public Function fnMarketCancel(BigInteger listingId) {
+        return new Function("cancel", List.of(new Uint256(listingId)), List.of());
+    }
+
     public Function fnMockUsdApprove(String spender, BigInteger amount) {
         return new Function(
             "approve",
             List.of(new Address(spender), new Uint256(amount)),
+            List.of(new TypeReference<Bool>() {
+            })
+        );
+    }
+
+    public Function fnMockUsdTransfer(String to, BigInteger amount) {
+        return new Function(
+            "transfer",
+            List.of(new Address(to), new Uint256(amount)),
             List.of(new TypeReference<Bool>() {
             })
         );
@@ -164,6 +177,21 @@ public class ContractGatewayService {
         );
         List<Type> output = web3FunctionService.callFunction(mockUsdAddress(), function);
         return ((Uint256) output.get(0)).getValue();
+    }
+
+    public BigInteger mockUsdBalance(String owner) {
+        Function function = new Function(
+            "balanceOf",
+            List.of(new Address(owner)),
+            List.of(new TypeReference<Uint256>() {
+            })
+        );
+        List<Type> output = web3FunctionService.callFunction(mockUsdAddress(), function);
+        return ((Uint256) output.get(0)).getValue();
+    }
+
+    public BigInteger nativeBalance(String owner) {
+        return web3FunctionService.getPendingBalance(owner);
     }
 
     public BigInteger shareTotalSupply(BigInteger tokenId) {

@@ -1,6 +1,9 @@
 package io.rwa.server.trade;
 
+import io.rwa.server.security.UserPrincipal;
+import io.rwa.server.security.UserPrincipalContext;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,9 +24,11 @@ public class TradeController {
     @PostMapping("/list")
     public Map<String, Object> list(
         @Valid @RequestBody TradeListRequest request,
-        @RequestHeader("Idempotency-Key") String idempotencyKey
+        @RequestHeader("Idempotency-Key") String idempotencyKey,
+        HttpServletRequest httpServletRequest
     ) {
-        TradeResult result = tradeService.list(request, idempotencyKey);
+        UserPrincipal principal = UserPrincipalContext.require(httpServletRequest);
+        TradeResult result = tradeService.list(request, principal.userId(), idempotencyKey);
         return Map.of(
             "outboxIds", result.outboxIds(),
             "tokenId", result.tokenId(),
@@ -35,9 +40,11 @@ public class TradeController {
     @PostMapping("/buy")
     public Map<String, Object> buy(
         @Valid @RequestBody TradeBuyRequest request,
-        @RequestHeader("Idempotency-Key") String idempotencyKey
+        @RequestHeader("Idempotency-Key") String idempotencyKey,
+        HttpServletRequest httpServletRequest
     ) {
-        TradeResult result = tradeService.buy(request, idempotencyKey);
+        UserPrincipal principal = UserPrincipalContext.require(httpServletRequest);
+        TradeResult result = tradeService.buy(request, principal.userId(), idempotencyKey);
         return Map.of(
             "outboxIds", result.outboxIds(),
             "listingId", result.listingId(),
@@ -45,6 +52,20 @@ public class TradeController {
             "amount", result.amount(),
             "unitPrice", result.unitPrice(),
             "cost", result.cost()
+        );
+    }
+
+    @PostMapping("/cancel")
+    public Map<String, Object> cancel(
+        @Valid @RequestBody TradeCancelRequest request,
+        @RequestHeader("Idempotency-Key") String idempotencyKey,
+        HttpServletRequest httpServletRequest
+    ) {
+        UserPrincipal principal = UserPrincipalContext.require(httpServletRequest);
+        TradeCancelResult result = tradeService.cancel(request, principal.userId(), idempotencyKey);
+        return Map.of(
+            "outboxId", result.outboxId(),
+            "listingId", result.listingId()
         );
     }
 }

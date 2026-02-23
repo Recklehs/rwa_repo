@@ -52,6 +52,9 @@ class TradeServiceTest {
     @Mock
     private SharedConstantsLoader sharedConstantsLoader;
 
+    @Mock
+    private UserOrderService userOrderService;
+
     private TradeService tradeService;
 
     @BeforeEach
@@ -63,6 +66,7 @@ class TradeServiceTest {
             contractGatewayService,
             txOrchestratorService,
             sharedConstantsLoader,
+            userOrderService,
             new ObjectMapper()
         );
     }
@@ -93,7 +97,7 @@ class TradeServiceTest {
             .thenReturn(approvalTx, listTx);
 
         // when: list 거래 오케스트레이션을 실행한다.
-        TradeResult result = tradeService.list(request, idempotencyKey);
+        TradeResult result = tradeService.list(request, sellerUserId, idempotencyKey);
 
         // then: approval tx 후 list tx가 생성되고 결과 값이 요청과 일치한다.
         assertThat(result.outboxIds()).containsExactly(approvalTx.getOutboxId(), listTx.getOutboxId());
@@ -131,7 +135,7 @@ class TradeServiceTest {
 
         // when: list 요청을 처리한다.
         // then: BAD_REQUEST 예외로 필수 식별자 누락을 반환한다.
-        assertThatThrownBy(() -> tradeService.list(request, "missing-token"))
+        assertThatThrownBy(() -> tradeService.list(request, sellerUserId, "missing-token"))
             .isInstanceOfSatisfying(ApiException.class, ex -> {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                 assertThat(ex.getMessage()).contains("tokenId or unitId is required");
@@ -166,7 +170,7 @@ class TradeServiceTest {
 
         // when: buy 요청을 처리한다.
         // then: listing 비활성 상태로 CONFLICT 예외가 발생한다.
-        assertThatThrownBy(() -> tradeService.buy(request, "buy-inactive"))
+        assertThatThrownBy(() -> tradeService.buy(request, buyerUserId, "buy-inactive"))
             .isInstanceOfSatisfying(ApiException.class, ex -> {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
                 assertThat(ex.getMessage()).contains("Listing is not ACTIVE");
@@ -213,7 +217,7 @@ class TradeServiceTest {
             .thenReturn(approveTx, buyTx);
 
         // when: buy 거래 오케스트레이션을 실행한다.
-        TradeResult result = tradeService.buy(request, "buy-key");
+        TradeResult result = tradeService.buy(request, buyerUserId, "buy-key");
 
         // then: approve tx와 buy tx가 순서대로 생성되고 비용 계산값이 검증된다.
         assertThat(result.outboxIds()).containsExactly(approveTx.getOutboxId(), buyTx.getOutboxId());
@@ -235,6 +239,55 @@ class TradeServiceTest {
         assertThat(txTypeCaptor.getAllValues()).containsExactly("TRADE_BUY_APPROVE", "TRADE_BUY");
 
         verify(contractGatewayService).allowance(eq("0xbuyer"), eq("0xmarket"));
+    }
+
+    @Test
+    @DisplayName("list는 amount가 0 이하이면 400 예외를 던진다")
+    void listShouldRejectNonPositiveAmount() {
+        UUID sellerUserId = UUID.randomUUID();
+        TradeListRequest request = new TradeListRequest(
+            sellerUserId,
+            "101",
+            null,
+            BigInteger.ZERO,
+            BigInteger.ONE
+        );
+
+        assertThatThrownBy(() -> tradeService.list(request, sellerUserId, "invalid-list-amount"))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                assertThat(ex.getMessage()).contains("amount must be greater than 0");
+            });
+    }
+
+    @Test
+    @DisplayName("buy는 listingId가 0 이하이면 400 예외를 던진다")
+    void buyShouldRejectNonPositiveListingId() {
+        UUID buyerUserId = UUID.randomUUID();
+        TradeBuyRequest request = new TradeBuyRequest(
+            buyerUserId,
+            BigInteger.ZERO,
+            BigInteger.ONE
+        );
+
+        assertThatThrownBy(() -> tradeService.buy(request, buyerUserId, "invalid-buy-listing"))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                assertThat(ex.getMessage()).contains("listingId must be greater than 0");
+            });
+    }
+
+    @Test
+    @DisplayName("cancel은 listingId가 0 이하이면 400 예외를 던진다")
+    void cancelShouldRejectNonPositiveListingId() {
+        UUID sellerUserId = UUID.randomUUID();
+        TradeCancelRequest request = new TradeCancelRequest(BigInteger.ZERO);
+
+        assertThatThrownBy(() -> tradeService.cancel(request, sellerUserId, "invalid-cancel-listing"))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                assertThat(ex.getMessage()).contains("listingId must be greater than 0");
+            });
     }
 
     private OutboxTxEntity outboxTx(String uuid) {

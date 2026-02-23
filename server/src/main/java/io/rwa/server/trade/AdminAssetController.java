@@ -46,4 +46,18 @@ public class AdminAssetController {
         data.put("txHash", result.txHash());
         return data;
     }
+
+    @PostMapping("/wallets/credit/musd")
+    public Map<String, Object> creditMockUsd(
+        @Valid @RequestBody WalletCreditRequest request,
+        @RequestHeader("Idempotency-Key") String idempotencyKey
+    ) {
+        AdminAssetResult result = adminAssetService.creditMockUsd(request, idempotencyKey);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("outboxId", result.outboxId());
+        data.put("txType", result.txType());
+        data.put("txStatus", result.txStatus());
+        data.put("txHash", result.txHash());
+        return data;
+    }
 }
