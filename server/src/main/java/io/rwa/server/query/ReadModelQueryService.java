@@ -66,6 +66,20 @@ public class ReadModelQueryService {
             .addValue("limit", limit));
     }
 
+    public List<Map<String, Object>> tradesByAddress(String address, int limit) {
+        String sql = """
+            SELECT id, listing_id, buyer, seller, tx_hash, traded_at, amount
+            FROM trades
+            WHERE lower(buyer) = lower(:address)
+               OR lower(seller) = lower(:address)
+            ORDER BY traded_at DESC
+            LIMIT :limit
+            """;
+        return jdbcTemplate.queryForList(sql, new MapSqlParameterSource()
+            .addValue("address", address)
+            .addValue("limit", Math.max(1, limit)));
+    }
+
     public Map<String, Object> listingById(String listingId) {
         String sql = """
             SELECT id, property_id, listing_status, price, created_at, updated_at

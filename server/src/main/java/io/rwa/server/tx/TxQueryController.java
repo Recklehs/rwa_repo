@@ -1,6 +1,10 @@
 package io.rwa.server.tx;
 
 import io.rwa.server.common.ApiException;
+import io.rwa.server.security.UserPrincipal;
+import io.rwa.server.security.UserPrincipalContext;
+import io.rwa.server.wallet.WalletService;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -15,36 +19,47 @@ import org.springframework.web.bind.annotation.RestController;
 public class TxQueryController {
 
     private final TxOrchestratorService txOrchestratorService;
+    private final WalletService walletService;
 
-    public TxQueryController(TxOrchestratorService txOrchestratorService) {
+    public TxQueryController(TxOrchestratorService txOrchestratorService, WalletService walletService) {
         this.txOrchestratorService = txOrchestratorService;
+        this.walletService = walletService;
     }
 
     @GetMapping("/outbox/{outboxId}")
-    public Map<String, Object> getOutbox(@PathVariable UUID outboxId) {
+    public Map<String, Object> getOutbox(@PathVariable UUID outboxId, HttpServletRequest request) {
+        UserPrincipal principal = UserPrincipalContext.require(request);
         OutboxTxEntity tx = txOrchestratorService.findByOutboxId(outboxId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Outbox tx not found"));
+        assertOwnedByPrincipal(tx, principal.userId());
         return toMap(tx);
     }
 
     @GetMapping("/by-hash/{txHash}")
-    public Map<String, Object> getByHash(@PathVariable String txHash) {
+    public Map<String, Object> getByHash(@PathVariable String txHash, HttpServletRequest request) {
+        UserPrincipal principal = UserPrincipalContext.require(request);
         OutboxTxEntity tx = txOrchestratorService.findByHash(txHash)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Tx not found"));
+        assertOwnedByPrincipal(tx, principal.userId());
         return toMap(tx);
+    }
+
+    private void assertOwnedByPrincipal(OutboxTxEntity tx, UUID principalUserId) {
+        String principalAddress = walletService.getAddress(principalUserId);
+        if (tx.getFromAddress() == null || !tx.getFromAddress().equalsIgnoreCase(principalAddress)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Tx does not belong to authenticated user");
+        }
     }
 
     private Map<String, Object> toMap(OutboxTxEntity tx) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("outboxId", tx.getOutboxId());
-        data.put("requestId", tx.getRequestId());
         data.put("fromAddress", tx.getFromAddress());
         data.put("toAddress", tx.getToAddress());
         data.put("nonce", tx.getNonce());
         data.put("txHash", tx.getTxHash());
         data.put("status", tx.getStatus());
         data.put("txType", tx.getTxType());
-        data.put("lastError", tx.getLastError());
         data.put("createdAt", tx.getCreatedAt());
         data.put("updatedAt", tx.getUpdatedAt());
         return data;
