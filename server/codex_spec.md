@@ -159,13 +159,19 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `OUTBOX_DEFAULT_TOPIC=server.domain.events`
 - `NONCE_LOCK_TIMEOUT_MS=5000`
 - `Idempotency-Key` required on all mutating endpoints
+- `SERVICE_TOKEN=...`, `SERVICE_TOKEN_HEADER=X-Service-Token`, `INTERNAL_PATHS=/internal/**`
+- `AUTH_MODE=JWKS|HMAC|LOCAL`
+- `AUTH_JWKS_URL=...`, `AUTH_JWT_ISSUER=...`, `AUTH_JWT_AUDIENCE=...`, `AUTH_CLOCK_SKEW_SECONDS=...`
+- `AUTH_REQUIRED_PATHS=...` (baseline 보호 경로 `/trade/**`, `/me/**`, `/wallet/**`, `/tx/**`, `/users/**/holdings`는 항상 강제)
+- `AUTH_JWKS_CACHE_SECONDS=...`, `AUTH_HMAC_SECRET_BASE64=...`, `LOCAL_AUTH_ENABLED=true|false`
 
 ## 7) Core REST APIs (minimum)
-- `POST /auth/signup` (body: `externalUserId` required, `provider` optional default `MEMBER`)
+- `POST /auth/signup_local` (LOCAL mode + `LOCAL_AUTH_ENABLED=true` only; body: `externalUserId` required, `provider` optional default `MEMBER`; response includes `accessToken/tokenType/expiresInSeconds`)
 - `GET /admin/users/by-external?externalUserId=...&provider=...`
 - `POST /admin/compliance/approve`
 - `POST /admin/compliance/revoke`
 - `GET /admin/compliance/users`
+- `POST /internal/wallets/provision` (`X-Service-Token` + `Idempotency-Key` required)
 - `POST /admin/complexes/import`
 - `GET /complexes`
 - `GET /complexes/{kaptCode}`
@@ -175,14 +181,23 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `POST /admin/classes/{classId}/tokenize`
 - `GET /admin/classes/{classId}/registry`
 - `POST /admin/faucet/musd` (body: `toUserId` + (`amount` raw or `amountHuman`))
+- `POST /admin/wallets/credit/musd` (body: `toUserId` + (`amount` raw or `amountHuman`) + `mode`=`MINT|TRANSFER`)
 - `POST /admin/distribute/shares`
 - `POST /trade/list`
 - `POST /trade/buy`
-- `GET /tx/outbox/{outboxId}`
-- `GET /tx/by-hash/{txHash}`
+- `POST /trade/cancel`
+- `GET /me`
+- `GET /me/wallet`
+- `GET /me/orders`
+- `GET /me/trades`
+- `POST /wallet/transfer/musd`
+- `GET /tx/outbox/{outboxId}` (Bearer required, principal-owned tx only)
+- `GET /tx/by-hash/{txHash}` (Bearer required, principal-owned tx only)
 - `GET /market/listings`
-- `GET /users/{userId}/holdings`
+- `GET /users/{userId}/holdings` (Bearer required, path userId must match JWT sub)
 - `GET /tokens/{tokenId}/holders`
+- `GET /admin/indexer/status`
+- `GET /system/data-freshness`
 
 ## 8) Tx Orchestrator (MUST)
 - Must apply distributed address lock.
@@ -198,9 +213,9 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Retry scheduler does not hold DB lock while sending Kafka
 - Listing lag scenario still allows `/trade/buy` via on-chain listing fallback
 
-## 10) JUnit test coverage (updated: 2026-02-22)
+## 10) JUnit test coverage (updated: 2026-02-23)
 - Test execution command: `cd server && ./gradlew test`
-- Latest result: `35 tests, 0 failures, 0 errors, 1 skipped`
+- Latest rerun result: `55 tests, 0 failures, 0 errors, 1 ignored`
 
 ### Unit tests
 - `server/src/test/java/io/rwa/server/wallet/WalletServiceTest.java`
@@ -214,19 +229,24 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - `list()` rejects missing `tokenId` and `unitId` with `400`.
   - `buy()` rejects non-ACTIVE listing with `409`.
   - `buy()` submits approve+buy tx sequence when allowance is insufficient and validates cost calculation.
+  - `list()/buy()/cancel()` validates positive numeric inputs (`listingId/amount/unitPrice > 0`).
 - `server/src/test/java/io/rwa/server/trade/AdminAssetServiceTest.java`
   - `/admin/faucet/musd`에서 `amountHuman`(사람 단위) -> raw(18 decimals) 변환 검증.
   - 기존 `amount`(raw) 입력과의 하위 호환 검증.
   - `amount`+`amountHuman` 동시 입력 시 `400` 검증.
   - `amountHuman` 소수점 18자리 초과 시 `400` 검증.
+- `server/src/test/java/io/rwa/server/security/UserAuthFilterJwtModesTest.java`
+  - AUTH_MODE=JWKS/HMAC 토큰 검증(서명/iss/aud/exp), 보호 경로 Bearer 강제, JWKS key-rotation refresh 검증.
+- `server/src/test/java/io/rwa/server/wallet/WalletServiceTest.java`
+  - `provisionWallet()` 외부 링크 충돌 시 `409` + 지갑 생성/가스지급 미실행 검증.
 
 ### Web integration tests (MockMvc)
 - `server/src/test/java/io/rwa/server/auth/AuthIdempotencyIntegrationTest.java`
-  - `/auth/signup` without `Idempotency-Key` returns `400`.
+  - `/auth/signup_local` without `Idempotency-Key` returns `400`.
   - First request with key stores completed idempotency response (including `externalUserId/provider/created`).
   - Repeated request with same key returns stored response (replay) and skips `walletService.signup()`.
 - `server/src/test/java/io/rwa/server/auth/AuthSignupDbDefaultIntegrationTest.java`
-  - Verifies `/auth/signup` persists `users/wallets/user_external_links` with DB-generated `users.user_id` (uuid v7).
+  - Verifies `/auth/signup_local` persists `users/wallets/user_external_links` with DB-generated `users.user_id` (uuid v7).
   - Verifies returned `userId` is UUID v7 and persisted user compliance defaults are `PENDING`.
   - Runs only when `-DrunPg18Integration=true` (PG18 integration gate).
 - `server/src/test/java/io/rwa/server/auth/AdminUserQueryControllerTest.java`
@@ -235,6 +255,8 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - `server/src/test/java/io/rwa/server/compliance/ComplianceAdminTokenIntegrationTest.java`
   - `/admin/compliance/users` without `X-Admin-Token` returns `401`.
   - Same endpoint with valid token returns `200` and mapped user compliance payload.
+- `server/src/test/java/io/rwa/server/internal/InternalWalletProvisionControllerTest.java`
+  - `/internal/wallets/provision` service token/idempotency 필수 및 idempotent behavior 검증.
 
 ### JPA/Hibernate integration tests (`@DataJpaTest` + `@Transactional`)
 - Test DB mode: H2 in-memory with DDL auto create/drop and JSONB domain alias for entity compatibility.
@@ -259,7 +281,114 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
       - `MPAREA_60_85 -> hash basis MPAREA_85`
       - `MPAREA_85_135 -> hash basis MPAREA_135`
       - `MPAREA_GE_136 -> hash basis MPAREA_136`
-  - unitId: `{kaptCode}|{classKey}|{pad5(unitNo)}`
+
+## CODEX FEATURE SPEC - Server Add-on v4.2 (revA: External Identity + Auth Split)
+
+Baseline: SPEC2 MERGED v4.1 / 2026-02-22
+
+### 0) Baseline invariants (MUST)
+- On-chain allowlist/KYC enforcement 없음(레거시 allowlist ABI/주소 참조 금지)
+- Deployed contracts EXACTLY 5개: MockUSD, PropertyRegistry, PropertyShare1155, PropertyTokenizer, FixedPriceMarketDvP
+- 주소/ABI/상수는 런타임에 shared/*에서 로딩 (하드코딩 금지)
+- CONFIRMATIONS=12, SHARE_SCALE=1e18는 shared/config/constants.json에서 로딩
+- Nonce source: eth_getTransactionCount(from, "pending")
+- 모든 POST/PUT/PATCH/DELETE는 Idempotency-Key 필수
+- 모든 /admin/**는 X-Admin-Token 필수
+- 포트 8080
+- TxOrchestrator / distributed nonce lock / outbox 정책 v4.1 그대로 유지
+
+### 1) 권한/인증 모델 개편 (회원 서버 분리)
+- 회원 서버가 accessToken(JWT)을 발급하고, 커스터디 서버는 accessToken 검증만 수행
+- Refresh Token은 커스터디 서버에서 취급하지 않음
+- 공개 /auth/signup, /auth/login은 제거 원칙
+- LOCAL 개발 모드에서는 /auth/signup_local 사용 가능
+
+#### 1-B. 토큰 검증 방식 (MUST: JWKS 우선)
+- AUTH_MODE: JWKS|HMAC|LOCAL
+- JWKS 모드: AUTH_JWKS_URL 공개키 기반 RS256/ES256 서명 검증
+- 공통 검증: signature, exp/iat, iss, aud, clock skew
+- AUTH_REQUIRED_PATHS 기반 Bearer 강제
+- Baseline protected paths are always enforced: `/trade/**`, `/me/**`, `/wallet/**`, `/tx/**`, `/users/**/holdings`
+
+#### 1-C. JWT claim
+- 필수: sub(UUID), iss, iat, exp
+- 권장: aud
+- 선택: roles, provider, externalUserId
+- addr claim은 신뢰하지 않고 DB(wallets) 조회 기준 사용
+
+#### 1-D. 보안 필터
+- UserAuthFilter: AUTH_REQUIRED_PATHS에서 Bearer JWT 검증 후 UserPrincipal 주입
+- AdminTokenFilter: /admin/** 에서 X-Admin-Token 강제
+- ServiceTokenFilter: /internal/** 에서 X-Service-Token 강제
+- IdempotencyStatusController: `/idempotency/status` 는 X-Admin-Token 또는 X-Service-Token 필요 (responseBody 비노출)
+
+#### 1-E. trade write API userId 정리
+- /trade/list, /trade/buy의 sellerUserId/buyerUserId는 optional 호환 필드
+- 포함 시 principal.userId 불일치면 403
+- 실제 실행 주체는 항상 principal.userId
+
+### 2) 회원 서버 ↔ 커스터디 지갑 Provisioning (MUST)
+- 내부 동기 API: POST /internal/wallets/provision
+- 헤더: X-Service-Token + Idempotency-Key 필수
+- body: userId, provider, externalUserId
+- 동작:
+  - users 없으면 생성(PENDING)
+  - wallets 없으면 생성(암호화 저장)
+  - 있으면 기존 address 반환(멱등)
+
+### 3) 사용자 프로필/지갑 조회
+- GET /me: userId/address/complianceStatus/externalLinks[]
+- GET /me/wallet: address, ethBalance, musdBalance, shareApprovalForMarket, musdAllowanceToMarket, complianceStatus
+- wallet 미프로비저닝 시 404 WALLET_NOT_PROVISIONED
+
+### 4) 거래 취소 + 주문/체결
+- POST /trade/cancel: principal.userId + seller address 검증 + compliance gate + Market.cancel 제출(tx_type=CANCEL)
+- user_orders write-model 유지
+- GET /me/orders, GET /me/trades 제공
+
+### 5) 인덱싱 상태/데이터 신선도
+- GET /admin/indexer/status
+- GET /system/data-freshness
+
+### 6) 지갑/자금 관리
+- POST /wallet/transfer/musd: recipient는 userId/externalUserId 기준
+- POST /admin/wallets/credit/musd: mode=MINT|TRANSFER 지원
+
+### 7) 에러 코드 표준
+- 400 validation, 401 auth, 403 policy, 404 not found, 409 idempotency/conflict
+- 202 idempotency in-progress replay
+
+### 8) Tests (Codex MUST)
+- JWT JWKS/HMAC 검증
+- AUTH_REQUIRED_PATHS Bearer 누락 시 401
+- /internal/wallets/provision: service token/idempotency/idempotent behavior
+- v4.2 기존 테스트 회귀 방지
+
+## v4.2 revA Implementation Status (updated: 2026-02-23)
+
+- [x] AUTH_MODE(JWKS/HMAC/LOCAL), AUTH_* 환경변수, SERVICE_* 환경변수 바인딩 추가
+- [x] UserAuthFilter + ServiceTokenFilter + AdminTokenFilter 분리 운영
+- [x] JwtVerifier 인터페이스 및 JwksJwtVerifier/HmacJwtVerifier/LocalJwtIssuer 구현
+- [x] 공개 /auth/signup 제거, /auth/signup_local(LOCAL 모드 전용) 추가
+- [x] /internal/wallets/provision 구현 및 지갑 프로비저닝 멱등 처리
+- [x] /me, /me/wallet, /me/orders, /me/trades 구현
+- [x] /trade/list,/trade/buy principal 기반 전환 + userId mismatch 403 처리
+- [x] /trade/cancel 구현(CANCEL tx type)
+- [x] /wallet/transfer/musd 구현(userId/externalUserId recipient 제약)
+- [x] /admin/wallets/credit/musd 구현(mode=MINT|TRANSFER)
+- [x] /admin/indexer/status, /system/data-freshness 구현
+- [x] user_orders 마이그레이션(V13__user_orders.sql) 및 write-model 기록 추가
+- [x] JWT/JWKS/HMAC 및 internal provisioning 관련 테스트 추가/갱신
+- [x] /tx/** JWT 보호 + principal 소유 tx만 조회 + requestId/lastError 비노출
+- [x] /idempotency/status 관리자/서비스 토큰 제한 + responseBody 비노출
+- [x] /users/{userId}/holdings 본인(userId==JWT sub) 강제
+- [x] /auth/signup_local LOCAL 응답에 `accessToken/tokenType/expiresInSeconds` 포함
+- [x] /wallet/transfer/musd recipient 식별자 XOR/self-transfer 금지/송수신 compliance gate 적용
+- [x] `GlobalExceptionHandler` 400 표준화 (missing header/query param/malformed JSON)
+- [x] 전체 테스트 통과 (`./gradlew test`)
+
+### v4.2 Additional Contract Notes
+- unitId: `{kaptCode}|{classKey}|{pad5(unitNo)}`
 - Public classKey buckets (AGENTS global alignment):
   - `kaptMparea60 -> MPAREA_LE_60`
   - `kaptMparea85 -> MPAREA_60_85`
@@ -267,9 +396,10 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - `kaptMparea136 -> MPAREA_GE_136`
   - `MPAREA_UNKNOWN` is used as delta bucket when `hoCnt` mismatch produces positive remainder.
 - Signup request contract:
-  - `POST /auth/signup` requires request body field `externalUserId`.
+  - `POST /auth/signup_local` requires request body field `externalUserId` (LOCAL mode only).
   - `provider` is optional and defaults to `MEMBER`.
   - Existing `(provider, externalUserId)` mapping returns existing wallet (`created=false`).
+  - Response includes `accessToken`, `tokenType=Bearer`, `expiresInSeconds`; non-LOCAL mode or disabled LOCAL auth returns `404`.
 - User ID generation:
   - `users.user_id` is generated by DB default `uuidv7()`.
   - `signup()` first tries SQL `INSERT ... RETURNING user_id`.
@@ -297,6 +427,19 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
 - Change log entries must include date, scope, and impacted files/components.
 
 ## Change Log
+- 2026-02-23: Synced codex spec with revA implementation details across auth/local signup, wallet transfer, internal provisioning, and test coverage.
+  - Reflected runtime/env contract for `SERVICE_*` and `AUTH_*` settings (including baseline-auth path enforcement).
+  - Expanded core REST list with `/internal/wallets/provision`, `/trade/cancel`, `/wallet/transfer/musd`, `/me/*`, `/admin/wallets/credit/musd`, `/admin/indexer/status`, `/system/data-freshness`.
+  - Added `signup_local` LOCAL-token response contract (`accessToken/tokenType/expiresInSeconds`) and LOCAL-mode gating behavior.
+  - Updated test coverage section to include new security/internal integration tests and latest rerun result (`55 tests, 0 failures, 0 errors, 1 ignored`).
+  - Fixed misplaced markdown bullets in v4.2 notes (`MPAREA_GE_136` compatibility and additional contract notes grouping).
+  - Impacted files: `codex_spec.md`, `AuthController`, `WalletTransferService`, `InternalWalletProvisionController`, `UserAuthFilterJwtModesTest`, `InternalWalletProvisionControllerTest`.
+- 2026-02-23: Hardened auth/authorization boundaries for tx, idempotency status, and user holdings queries.
+  - `/tx/**` now requires Bearer JWT and restricts reads to principal-owned tx only; removed `requestId`/`lastError` from response surface.
+  - `/idempotency/status` now requires `X-Admin-Token` or `X-Service-Token` and no longer exposes stored `responseBody`.
+  - `/users/{userId}/holdings` now requires Bearer JWT and enforces `path userId == JWT sub`.
+  - Updated baseline auth-protected path documentation and v4.2 implementation checklist.
+  - Impacted files: `SecurityPropertyResolver`, `TxQueryController`, `IdempotencyStatusController`, `ReadModelQueryController`, `codex_spec.md`.
 - 2026-02-16: Initialized v4.1 server baseline spec in `server/codex_spec.md`.
   - Added implementation decisions fixed during planning (admin auth/header, deterministic IDs, Kafka feature flag, Java 17 baseline).
   - Marked outbox/nonce/idempotency/trading fallback requirements as hard constraints for server implementation.
@@ -334,7 +477,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Updated JPA mapping to `@GeneratedValue(strategy = GenerationType.IDENTITY)` on `UserEntity.userId`.
   - Updated signup flow to persist `UserEntity` first and consume DB-generated `user_id`.
   - Added `V6__users_uuidv7_default.sql` migration to enforce DB default on existing tables.
-  - Added `AuthSignupDbDefaultIntegrationTest` (opt-in via `-DrunPg18Integration=true`) to verify `/auth/signup` DB-default UUID behavior.
+  - Added `AuthSignupDbDefaultIntegrationTest` (opt-in via `-DrunPg18Integration=true`) to verify legacy `/auth/signup` DB-default UUID behavior (revA 이후 `/auth/signup_local`로 이관).
 - 2026-02-22: Fixed smoke/runtime issues found during end-to-end execution.
   - Updated `WalletService.signup()` to use SQL `INSERT ... RETURNING user_id` for deterministic DB-default UUID retrieval.
   - Added fallback path to explicit app-generated UUIDv7 insert when `RETURNING` query translation fails.
@@ -344,7 +487,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Updated smoke docs in `server/scripts/README.md` for new auto-listing behavior.
 - 2026-02-22: Added external user linkage for signup and admin lookup APIs.
   - Added `V7__user_external_links.sql` and `user_external_links` mapping table (`provider + external_user_id -> user_id`).
-  - Updated `/auth/signup` contract to require `externalUserId` request body (`provider` optional, default `MEMBER`).
+  - Updated legacy `/auth/signup` contract to require `externalUserId` request body (`provider` optional, default `MEMBER`) (revA 이후 `/auth/signup_local`로 이관).
   - Updated wallet signup flow to reuse existing linked wallet for duplicate external IDs and return `created` flag.
   - Added `/admin/users/by-external` endpoint for admin-side user/address lookup by external identifier.
   - Updated smoke script and auth/wallet tests for new signup request/response contract.
@@ -360,6 +503,7 @@ Title: Spring Boot Custodial Ops Server (Off-chain compliance) + TxOrchestrator 
   - Tightened `WalletService` `BadSqlGrammarException` fallback gating to SQLState-based `RETURNING` compatibility only, with explicit schema-mismatch errors for non-compat failures.
   - Added `V10__read_model_schema_bootstrap.sql` so read-model dependencies (`processed_events/listings/trades/balances`) exist before query endpoints are called.
 - 2026-02-22: Fixed `/auth/signup` outbox insert SQL-grammar failures caused by payload type binding drift.
+  - Note: above fix was applied before revA auth split and corresponds to legacy `/auth/signup` path (current LOCAL path is `/auth/signup_local`).
   - Updated `OutboxRepository.insertEventAndInitDelivery()` to detect `outbox_event.payload` column type from `information_schema` and choose SQL accordingly:
     - `jsonb` column: `CAST(:payload AS jsonb)`
     - non-`jsonb` column: plain `:payload` binding

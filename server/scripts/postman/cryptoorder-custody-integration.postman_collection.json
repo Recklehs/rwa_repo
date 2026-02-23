@@ -1,0 +1,641 @@
+{
+  "info": {
+    "_postman_id": "ea19386f-0db9-4a9d-bfb9-c68b628f6f86",
+    "name": "CryptoOrder x Custody Integration Template",
+    "description": "Template to validate integration when cryptoOrder runs on :8000 and custody server runs on :8080. Includes direct custody internal API checks and an optional cryptoOrder proxy flow.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0) Custody Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{custodyBaseUrl}}/actuator/health",
+          "host": [
+            "{{custodyBaseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Custody server health check (expected: 200, status=UP)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "pm.test('health status is UP', function () { pm.expect(j.status).to.eql('UP'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1) CryptoOrder Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{cryptoOrderBaseUrl}}{{cryptoOrderHealthPath}}",
+        "description": "cryptoOrder health check. Adjust {{cryptoOrderHealthPath}} if your service uses a different endpoint."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) Direct Custody Internal Provision",
+      "item": [
+        {
+          "name": "2-1) Provision Success",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    const r = Math.random() * 16 | 0;",
+                  "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "if (!pm.collectionVariables.get('provisionUserId')) {",
+                  "  pm.collectionVariables.set('provisionUserId', uuidv4());",
+                  "}",
+                  "if (!pm.collectionVariables.get('externalUserId')) {",
+                  "  pm.collectionVariables.set('externalUserId', 'cryptoorder-' + Date.now());",
+                  "}",
+                  "pm.collectionVariables.set('idempotencyKey', 'idem-' + Date.now() + '-' + Math.floor(Math.random() * 1000000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('provisionedAddress', j.address);",
+                  "pm.test('userId matches request', function () {",
+                  "  pm.expect(j.userId).to.eql(pm.collectionVariables.get('provisionUserId'));",
+                  "});",
+                  "pm.test('address is hex wallet', function () {",
+                  "  pm.expect(j.address).to.match(/^0x[a-fA-F0-9]{40}$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{provisionUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{externalUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          },
+          "description": "Simulates cryptoOrder -> custody internal wallet provisioning call."
+        },
+        {
+          "name": "2-2) Stable Key First Call (for replay)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    const r = Math.random() * 16 | 0;",
+                  "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "if (!pm.collectionVariables.get('stableUserId')) {",
+                  "  pm.collectionVariables.set('stableUserId', uuidv4());",
+                  "}",
+                  "if (!pm.collectionVariables.get('stableExternalUserId')) {",
+                  "  pm.collectionVariables.set('stableExternalUserId', 'stable-' + Date.now());",
+                  "}",
+                  "if (!pm.collectionVariables.get('stableIdempotencyKey')) {",
+                  "  pm.collectionVariables.set('stableIdempotencyKey', 'idem-stable-' + Date.now());",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('stableAddress', j.address);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{stableIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{stableUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{stableExternalUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2-3) Stable Key Second Call (same payload)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('address replay is identical', function () {",
+                  "  pm.expect(j.address).to.eql(pm.collectionVariables.get('stableAddress'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{stableIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{stableUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{stableExternalUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2-4) Stable Key Reused With Different Payload -> 409",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let mismatch = pm.collectionVariables.get('stableExternalUserIdMismatch');",
+                  "if (!mismatch) {",
+                  "  mismatch = (pm.collectionVariables.get('stableExternalUserId') || 'stable') + '-mismatch';",
+                  "  pm.collectionVariables.set('stableExternalUserIdMismatch', mismatch);",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });",
+                  "const j = pm.response.json();",
+                  "pm.test('idempotency conflict message', function () {",
+                  "  pm.expect(j.message).to.include('Idempotency-Key reuse with different payload');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{stableIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{stableUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{stableExternalUserIdMismatch}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2-5) Missing Service Token -> 401",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    const r = Math.random() * 16 | 0;",
+                  "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('idempotencyKey', 'idem-' + Date.now() + '-' + Math.floor(Math.random() * 1000000));",
+                  "pm.collectionVariables.set('provisionUserId', uuidv4());",
+                  "pm.collectionVariables.set('externalUserId', 'no-token-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{provisionUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{externalUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2-6) Missing Idempotency-Key -> 400",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    const r = Math.random() * 16 | 0;",
+                  "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('provisionUserId', uuidv4());",
+                  "pm.collectionVariables.set('externalUserId', 'no-idem-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const j = pm.response.json();",
+                  "pm.test('idempotency header required', function () {",
+                  "  pm.expect(j.message).to.include('Idempotency-Key required');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{provisionUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{externalUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{custodyBaseUrl}}/internal/wallets/provision",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "internal",
+                "wallets",
+                "provision"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) Optional Proxy Flow (via cryptoOrder)",
+      "item": [
+        {
+          "name": "3-1) cryptoOrder Provision Proxy (edit path)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    const r = Math.random() * 16 | 0;",
+                  "    const v = c === 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "if (!pm.collectionVariables.get('proxyUserId')) {",
+                  "  pm.collectionVariables.set('proxyUserId', uuidv4());",
+                  "}",
+                  "if (!pm.collectionVariables.get('proxyExternalUserId')) {",
+                  "  pm.collectionVariables.set('proxyExternalUserId', 'proxy-' + Date.now());",
+                  "}",
+                  "pm.collectionVariables.set('proxyIdempotencyKey', 'idem-proxy-' + Date.now() + '-' + Math.floor(Math.random() * 1000000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{proxyIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{proxyUserId}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{proxyExternalUserId}}\"\n}"
+            },
+            "url": "{{cryptoOrderBaseUrl}}{{cryptoOrderProvisionPath}}",
+            "description": "Set {{cryptoOrderProvisionPath}} to your actual cryptoOrder API path that forwards/provisions wallet on custody."
+          }
+        },
+        {
+          "name": "3-2) Verify Provision on Custody (admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{custodyBaseUrl}}/admin/users/by-external?externalUserId={{proxyExternalUserId}}&provider={{provider}}",
+              "host": [
+                "{{custodyBaseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "by-external"
+              ],
+              "query": [
+                {
+                  "key": "externalUserId",
+                  "value": "{{proxyExternalUserId}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{provider}}"
+                }
+              ]
+            },
+            "description": "Requires valid {{adminToken}}. Confirms wallet/user link exists in custody after proxy call."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('externalUserId matches', function () {",
+                  "  pm.expect(j.externalUserId).to.eql(pm.collectionVariables.get('proxyExternalUserId'));",
+                  "});",
+                  "pm.test('address is wallet format', function () {",
+                  "  pm.expect(j.address).to.match(/^0x[a-fA-F0-9]{40}$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "cryptoOrderBaseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "cryptoOrderHealthPath",
+      "value": "/actuator/health"
+    },
+    {
+      "key": "cryptoOrderProvisionPath",
+      "value": "/api/v1/custody/wallets/provision"
+    },
+    {
+      "key": "custodyBaseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "serviceToken",
+      "value": "change-me-internal-token"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "provider",
+      "value": "MEMBER"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "provisionUserId",
+      "value": ""
+    },
+    {
+      "key": "externalUserId",
+      "value": ""
+    },
+    {
+      "key": "provisionedAddress",
+      "value": ""
+    },
+    {
+      "key": "stableIdempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "stableUserId",
+      "value": ""
+    },
+    {
+      "key": "stableExternalUserId",
+      "value": ""
+    },
+    {
+      "key": "stableExternalUserIdMismatch",
+      "value": ""
+    },
+    {
+      "key": "stableAddress",
+      "value": ""
+    },
+    {
+      "key": "proxyUserId",
+      "value": ""
+    },
+    {
+      "key": "proxyExternalUserId",
+      "value": ""
+    },
+    {
+      "key": "proxyIdempotencyKey",
+      "value": ""
+    }
+  ]
+}
