@@ -1,0 +1,62 @@
+services:
+  postgres:
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements,auto_explain
+      -c pg_stat_statements.max=10000
+      -c pg_stat_statements.track=all
+      -c auto_explain.log_min_duration=200ms
+      -c auto_explain.log_analyze=on
+      -c auto_explain.log_buffers=on
+      -c auto_explain.log_nested_statements=on
+      -c auto_explain.log_verbose=on
+      -c log_min_duration_statement=500ms
+
+  flink:
+    ports:
+      - "8081:8081"
+
+  kafka:
+    ports:
+      - "29092:9092"
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    depends_on:
+      - postgres
+    environment:
+      DATA_SOURCE_NAME: postgresql://rwa:rwa_password@postgres:5432/rwa?sslmode=disable
+    ports:
+      - "9187:9187"
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    depends_on:
+      - kafka
+    command:
+      - --kafka.server=kafka:9092
+    ports:
+      - "9308:9308"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    depends_on:
+      - postgres-exporter
+      - kafka-exporter
+    volumes:
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
