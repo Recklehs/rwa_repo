@@ -72,11 +72,9 @@ class WalletServiceTest {
     @DisplayName("signup은 사용자/지갑을 저장하고 UserSignedUp 이벤트를 발행한다")
     void signupShouldPersistUserAndWalletAndPublishEvent() {
         // given: signup 수행에 필요한 암호화/저장 목 동작을 준비한다.
-        UUID userId = UUID.fromString("0199587d-78f9-7000-8000-000000000001");
         when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-user-1"))
             .thenReturn(Optional.empty());
-        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
-            .thenReturn(userId);
+        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class))).thenReturn(1);
         when(walletCryptoService.encryptPrivateKey(any())).thenReturn(new byte[] { 1, 2, 3 });
         when(walletRepository.save(any(WalletEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userExternalLinkRepository.save(any(UserExternalLinkEntity.class)))
@@ -89,8 +87,12 @@ class WalletServiceTest {
         ArgumentCaptor<String> privateKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(walletCryptoService).encryptPrivateKey(privateKeyCaptor.capture());
         assertThat(privateKeyCaptor.getValue()).matches("^[0-9a-fA-F]{64}$");
-        assertThat(result.userId()).isEqualTo(userId);
-        verify(jdbcTemplate).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class));
+        assertThat(result.userId().version()).isEqualTo(7);
+        assertThat(result.userId().variant()).isEqualTo(2);
+
+        ArgumentCaptor<MapSqlParameterSource> userInsertCaptor = ArgumentCaptor.forClass(MapSqlParameterSource.class);
+        verify(jdbcTemplate).update(any(String.class), userInsertCaptor.capture());
+        assertThat(userInsertCaptor.getValue().getValue("userId")).isEqualTo(result.userId());
 
         ArgumentCaptor<WalletEntity> walletCaptor = ArgumentCaptor.forClass(WalletEntity.class);
         verify(walletRepository).save(walletCaptor.capture());
@@ -105,7 +107,7 @@ class WalletServiceTest {
         ArgumentCaptor<UserExternalLinkEntity> linkCaptor = ArgumentCaptor.forClass(UserExternalLinkEntity.class);
         verify(userExternalLinkRepository).save(linkCaptor.capture());
         UserExternalLinkEntity savedLink = linkCaptor.getValue();
-        assertThat(savedLink.getUserId()).isEqualTo(userId);
+        assertThat(savedLink.getUserId()).isEqualTo(result.userId());
         assertThat(savedLink.getProvider()).isEqualTo("MEMBER");
         assertThat(savedLink.getExternalUserId()).isEqualTo("ext-user-1");
         assertThat(savedLink.getCreatedAt()).isNotNull();
@@ -155,7 +157,7 @@ class WalletServiceTest {
         assertThat(result.externalUserId()).isEqualTo("ext-user-existing");
         assertThat(result.provider()).isEqualTo("MEMBER");
         assertThat(result.created()).isFalse();
-        verify(jdbcTemplate, never()).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class));
+        verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
         verify(walletRepository, never()).save(any(WalletEntity.class));
         verify(outboxEventPublisher, never()).publish(any(), any(), any(), any(), any());
     }
@@ -196,38 +198,31 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("signup은 RETURNING 구문 비호환(SQLState 42601)일 때만 명시적 user_id INSERT fallback을 수행한다")
-    void signupShouldFallbackOnlyForReturningCompatibilityIssue() {
-        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-fallback"))
+    @DisplayName("signup은 users insert 영향 행 수가 1이 아니면 스키마 미스매치로 실패한다")
+    void signupShouldFailWhenUserInsertAffectsUnexpectedRowCount() {
+        when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-zero"))
             .thenReturn(Optional.empty());
-        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
-            .thenThrow(new BadSqlGrammarException(
-                "createUser",
-                "INSERT INTO users ... RETURNING user_id",
-                new SQLException("syntax error at or near RETURNING", "42601")
-            ));
-        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class))).thenReturn(1);
-        when(walletCryptoService.encryptPrivateKey(any())).thenReturn(new byte[] { 9, 9, 9 });
-        when(walletRepository.save(any(WalletEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(userExternalLinkRepository.save(any(UserExternalLinkEntity.class)))
-            .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class))).thenReturn(0);
 
-        SignupResult result = walletService.signup("ext-fallback", null);
+        assertThatThrownBy(() -> walletService.signup("ext-zero", null))
+            .isInstanceOfSatisfying(ApiException.class, ex -> {
+                assertThat(ex.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+                assertThat(ex.getMessage()).contains("users table schema mismatch");
+            });
 
-        assertThat(result.created()).isTrue();
-        verify(jdbcTemplate).update(any(String.class), any(MapSqlParameterSource.class));
+        verify(walletRepository, never()).save(any(WalletEntity.class));
     }
 
     @Test
-    @DisplayName("signup은 non-compat SQL grammar 오류에서 generic 재시도 없이 스키마 미스매치로 즉시 실패한다")
-    void signupShouldFailFastForNonCompatibilitySqlGrammarError() {
+    @DisplayName("signup은 users insert SQL grammar 오류에서 스키마 미스매치로 즉시 실패한다")
+    void signupShouldFailFastForSqlGrammarErrorOnUserInsert() {
         when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-schema"))
             .thenReturn(Optional.empty());
-        when(jdbcTemplate.queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class)))
             .thenThrow(new BadSqlGrammarException(
                 "createUser",
-                "INSERT INTO users ... RETURNING user_id",
-                new SQLException("relation \"users\" does not exist near RETURNING", "42P01")
+                "INSERT INTO users (user_id, ...)",
+                new SQLException("relation \"users\" does not exist", "42P01")
             ));
 
         assertThatThrownBy(() -> walletService.signup("ext-schema", null))
@@ -235,8 +230,6 @@ class WalletServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
                 assertThat(ex.getMessage()).contains("users table schema mismatch");
             });
-
-        verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
     }
 
     @Test

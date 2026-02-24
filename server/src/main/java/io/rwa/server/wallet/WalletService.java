@@ -1,12 +1,11 @@
 package io.rwa.server.wallet;
 
+import com.github.f4b6a3.uuid.UuidCreator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.rwa.server.common.ApiException;
 import io.rwa.server.outbox.OutboxEventPublisher;
 import io.rwa.server.tx.GasManagerService;
 import jakarta.transaction.Transactional;
-import java.security.SecureRandom;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
@@ -29,10 +28,9 @@ import org.web3j.utils.Numeric;
 public class WalletService {
 
     private static final Logger log = LoggerFactory.getLogger(WalletService.class);
-    private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DEFAULT_PROVIDER = "MEMBER";
     private static final int MAX_EXTERNAL_USER_ID_LENGTH = 128;
-    private static final String REQUIRED_FLYWAY_RANGE = "V1~V10";
+    private static final String REQUIRED_FLYWAY_RANGE = "V1~V14";
 
     private final UserRepository userRepository;
     private final WalletRepository walletRepository;
@@ -83,9 +81,6 @@ public class WalletService {
 
             Instant now = Instant.now();
             UUID userId = createUser(now);
-            if (userId == null) {
-                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to get generated user_id from database");
-            }
 
             WalletEntity wallet = new WalletEntity();
             wallet.setUserId(userId);
@@ -171,68 +166,28 @@ public class WalletService {
 
     private UUID createUser(Instant now) {
         Timestamp nowTs = Timestamp.from(now);
-        MapSqlParameterSource common = new MapSqlParameterSource()
-            .addValue("createdAt", nowTs, Types.TIMESTAMP)
-            .addValue("complianceStatus", ComplianceStatus.PENDING.name())
-            .addValue("complianceUpdatedAt", nowTs, Types.TIMESTAMP);
-
+        UUID userId = generateUuidV7();
+        int updated;
         try {
-            return jdbcTemplate.queryForObject(
+            updated = jdbcTemplate.update(
                 """
-                    INSERT INTO users (created_at, compliance_status, compliance_updated_at)
-                    VALUES (:createdAt, :complianceStatus, :complianceUpdatedAt)
-                    RETURNING user_id
+                    INSERT INTO users (user_id, created_at, compliance_status, compliance_updated_at)
+                    VALUES (:userId, :createdAt, :complianceStatus, :complianceUpdatedAt)
                     """,
-                common,
-                UUID.class
+                new MapSqlParameterSource()
+                    .addValue("userId", userId)
+                    .addValue("createdAt", nowTs, Types.TIMESTAMP)
+                    .addValue("complianceStatus", ComplianceStatus.PENDING.name())
+                    .addValue("complianceUpdatedAt", nowTs, Types.TIMESTAMP)
             );
         } catch (BadSqlGrammarException e) {
-            // Only fallback when RETURNING syntax is the incompatibility point.
-            if (!isReturningCompatibilityIssue(e)) {
-                throw usersSchemaMismatch(e);
-            }
-
-            UUID userId = generateUuidV7();
-            try {
-                int updated = jdbcTemplate.update(
-                    """
-                        INSERT INTO users (user_id, created_at, compliance_status, compliance_updated_at)
-                        VALUES (:userId, :createdAt, :complianceStatus, :complianceUpdatedAt)
-                        """,
-                    new MapSqlParameterSource()
-                        .addValue("userId", userId)
-                        .addValue("createdAt", nowTs, Types.TIMESTAMP)
-                        .addValue("complianceStatus", ComplianceStatus.PENDING.name())
-                        .addValue("complianceUpdatedAt", nowTs, Types.TIMESTAMP)
-                );
-                if (updated != 1) {
-                    throw usersSchemaMismatch(e);
-                }
-            } catch (BadSqlGrammarException fallbackException) {
-                throw usersSchemaMismatch(fallbackException);
-            }
-            log.warn("Falling back to explicit user_id insert because RETURNING failed: {}", e.getMessage());
-            return userId;
-        }
-    }
-
-    private boolean isReturningCompatibilityIssue(BadSqlGrammarException e) {
-        String message = rootMessage(e).toLowerCase();
-        if (!message.contains("returning")) {
-            return false;
+            throw usersSchemaMismatch(e);
         }
 
-        Throwable root = rootCause(e);
-        if (root instanceof SQLException sqlException) {
-            String sqlState = sqlException.getSQLState();
-            if (sqlState == null || sqlState.isBlank()) {
-                return true;
-            }
-            // Only syntax/feature-not-supported SQL states should trigger RETURNING fallback.
-            return "42601".equals(sqlState) || "0A000".equals(sqlState);
+        if (updated != 1) {
+            throw usersSchemaMismatch(new IllegalStateException("users insert affected rows=" + updated));
         }
-
-        return true;
+        return userId;
     }
 
     private ApiException usersSchemaMismatch(Exception e) {
@@ -256,11 +211,7 @@ public class WalletService {
     }
 
     private UUID generateUuidV7() {
-        long unixMillis = Instant.now().toEpochMilli() & 0xFFFFFFFFFFFFL;
-        long randA = RANDOM.nextInt(1 << 12);
-        long msb = (unixMillis << 16) | (0x7L << 12) | randA;
-        long lsb = (RANDOM.nextLong() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
-        return new UUID(msb, lsb);
+        return UuidCreator.getTimeOrderedEpoch();
     }
 
     private void saveExternalLink(UUID userId, String provider, String externalUserId, Instant now) {

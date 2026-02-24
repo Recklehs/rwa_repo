@@ -1,8 +1,8 @@
 -- users: 서비스 사용자와 오프체인 컴플라이언스(KYC/심사) 상태를 관리하는 기준 테이블
 CREATE TABLE IF NOT EXISTS users (
-  -- 사용자 고유 ID(UUID, DB 기본값 uuidv7()).
+  -- 사용자 고유 ID(UUID). 값은 애플리케이션에서 UUIDv7로 생성해 저장한다.
   -- 예시: '7e0afdb6-6a88-4c28-89eb-9d4f4d0c79fd'
-  user_id UUID PRIMARY KEY DEFAULT uuidv7(),
+  user_id UUID PRIMARY KEY,
   -- 사용자 생성 시각(UTC 타임존 포함).
   -- 예시: '2026-02-17T10:15:30Z'
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

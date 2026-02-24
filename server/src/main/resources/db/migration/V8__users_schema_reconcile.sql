@@ -2,7 +2,7 @@
 -- This migration is intentionally defensive so signup can work against pre-existing DBs.
 
 CREATE TABLE IF NOT EXISTS users (
-  user_id UUID PRIMARY KEY DEFAULT uuidv7(),
+  user_id UUID PRIMARY KEY,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   compliance_status TEXT NOT NULL DEFAULT 'PENDING',
   compliance_updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

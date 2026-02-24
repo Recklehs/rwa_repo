@@ -113,7 +113,7 @@ class AuthSignupDbDefaultIntegrationTest {
 
         jdbcTemplate.getJdbcTemplate().execute("""
             CREATE TABLE users (
-              user_id UUID PRIMARY KEY DEFAULT uuidv7(),
+              user_id UUID PRIMARY KEY,
               created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
               compliance_status TEXT NOT NULL,
               compliance_updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -202,8 +202,8 @@ class AuthSignupDbDefaultIntegrationTest {
     }
 
     @Test
-    @DisplayName("signup은 DB uuidv7 기본값으로 user_id를 생성하고 users/wallets를 저장한다")
-    void signupShouldCreateUserIdViaDatabaseDefaultUuidV7() throws Exception {
+    @DisplayName("signup은 앱 UUIDv7 생성값으로 user_id를 저장하고 users/wallets를 생성한다")
+    void signupShouldCreateUserIdViaApplicationUuidV7() throws Exception {
         Instant before = Instant.now();
         usedIdempotencyKey = "it-signup-db-default-" + UUID.randomUUID();
         createdExternalUserId = "it-ext-" + UUID.randomUUID();
