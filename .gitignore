@@ -61,6 +61,8 @@ build/
 # --- Server / module-specific generated dirs ---
 server/build/
 server/bin/
+server/.gradle-home/
+server/*.tar
 ingester/build/
 flink/build/
 
