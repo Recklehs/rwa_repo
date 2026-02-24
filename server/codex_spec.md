@@ -427,6 +427,17 @@ Baseline: SPEC2 MERGED v4.1 / 2026-02-22
 - Change log entries must include date, scope, and impacted files/components.
 
 ## Change Log
+- 2026-02-24: Resolved AKS CrashLoopBackOff during `rwa-server` deployment and standardized image build/deploy policy.
+  - Symptom on AKS: container repeatedly failed with `exec /cnb/process/web: exec format error` and entered `CrashLoopBackOff`.
+  - Root cause: deployed image artifact/runtime format mismatch for AKS node architecture (`amd64`) plus missing repository `Dockerfile` for deterministic rebuild.
+  - Resolution:
+    - Added repository runtime image definition `server/Dockerfile` (Temurin JRE + Spring Boot jar entrypoint).
+    - Standardized server image build for AKS to `linux/amd64` using `docker buildx build --platform linux/amd64 -f server/Dockerfile ... --push .`.
+    - Added AKS deployment assets under `server/k8s/aks`:
+      - `.env` -> split apply into `rwa-server-config` (ConfigMap) and `rwa-server-secret` (Secret).
+      - Deployment injects both via `envFrom` and uses explicit image tag updates.
+    - Kept runtime compatibility for current env contract by including shared assets in image (`/shared`) to support configured `SHARED_DIR_PATH`.
+  - Impacted files/components: `server/Dockerfile`, `server/k8s/aks/create-env-secret.sh`, `server/k8s/aks/deploy.sh`, `server/k8s/aks/deployment.yaml`, `server/k8s/aks/service.yaml`, `server/k8s/aks/README.md`, `server/codex_spec.md`.
 - 2026-02-23: Synced codex spec with revA implementation details across auth/local signup, wallet transfer, internal provisioning, and test coverage.
   - Reflected runtime/env contract for `SERVICE_*` and `AUTH_*` settings (including baseline-auth path enforcement).
   - Expanded core REST list with `/internal/wallets/provision`, `/trade/cancel`, `/wallet/transfer/musd`, `/me/*`, `/admin/wallets/credit/musd`, `/admin/indexer/status`, `/system/data-freshness`.
