@@ -1,0 +1,594 @@
+{
+  "info": {
+    "_postman_id": "c7f4dfe5-4ee7-4b94-8d5a-4b5f8f3af3f6",
+    "description": "AKS 배포 환경에서 실제 사용자 여정(회원가입/로그인/토큰갱신/지갑연동/자산조회)을 점검하는 통합 시나리오입니다.",
+    "name": "RWA x CryptoOrder AKS User Scenario",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "item": [
+        {
+          "description": "무엇을 테스트하나요?\n- RWA 서버 LoadBalancer 경로가 열려 있고 애플리케이션이 정상 기동(health) 상태인지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('health status is UP', function () { pm.expect(j.status).to.eql('UP'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "01 RWA Health",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- RWA 서버 LoadBalancer 경로가 열려 있고 애플리케이션이 정상 기동(health) 상태인지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'",
+            "header": [],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/actuator/health"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- CryptoOrder 서버 LoadBalancer 경로와 헬스 체크 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('health status is UP', function () { pm.expect(j.status).to.eql('UP'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "02 CryptoOrder Health",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- CryptoOrder 서버 LoadBalancer 경로와 헬스 체크 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'",
+            "header": [],
+            "method": "GET",
+            "url": "{{cryptoorder_base_url}}/actuator/health"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- CryptoOrder의 JWKS 공개키 엔드포인트가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON에 keys 배열 존재\n- expect_jwks_mode=true인 경우 keys 길이 > 0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('keys is array', function () { pm.expect(Array.isArray(j.keys)).to.eql(true); });",
+                  "if ((pm.environment.get('expect_jwks_mode') || pm.collectionVariables.get('expect_jwks_mode') || 'true') === 'true') {",
+                  "  pm.test('at least one key in JWKS mode', function () { pm.expect(j.keys.length > 0).to.eql(true); });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "03 CryptoOrder JWKS",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- CryptoOrder의 JWKS 공개키 엔드포인트가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON에 keys 배열 존재\n- expect_jwks_mode=true인 경우 keys 길이 > 0",
+            "header": [],
+            "method": "GET",
+            "url": "{{cryptoorder_base_url}}/.well-known/jwks.json"
+          }
+        }
+      ],
+      "name": "0) Health & Public"
+    },
+    {
+      "item": [
+        {
+          "description": "무엇을 테스트하나요?\n- CryptoOrder 회원가입 API가 정상 동작하고 access/refresh 토큰을 발급하는지 확인합니다.\n- 이 호출이 RWA 지갑 프로비저닝(동기/비동기) 연계의 시작점입니다.\n통과 기준\n- HTTP 200\n- tokenType='Bearer'\n- accessToken, refreshToken, userId가 비어있지 않음",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const runId = pm.variables.replaceIn('{{$guid}}');",
+                  "const ts = Date.now();",
+                  "const seg = () => String(Math.floor(Math.random() * 9000) + 1000);",
+                  "pm.collectionVariables.set('run_id', runId);",
+                  "pm.collectionVariables.set('signup_name', 'K8s Integration User');",
+                  "pm.collectionVariables.set('signup_phone', `010-${seg()}-${seg()}`);",
+                  "pm.collectionVariables.set('signup_birth_date', '1995-01-01');",
+                  "pm.collectionVariables.set('signup_login_id', `member_${ts}`);",
+                  "pm.collectionVariables.set('signup_password', 'Passw0rd!123');",
+                  "pm.collectionVariables.set('signup_provider', pm.environment.get('provider') || pm.collectionVariables.get('provider') || 'MEMBER');",
+                  "pm.collectionVariables.set('signup_external_user_id', `ext_${runId}`);",
+                  "pm.collectionVariables.set('signup_external_user_id_conflict', `ext_conflict_${runId}`);",
+                  "pm.collectionVariables.set('idem_signup', `signup-${runId}`);",
+                  "pm.collectionVariables.set('idem_login', `login-${runId}`);",
+                  "pm.collectionVariables.set('idem_refresh', `refresh-${runId}`);",
+                  "pm.collectionVariables.set('poll_attempt', '0');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('token payload exists', function () {",
+                  "  pm.expect(j.tokenType).to.eql('Bearer');",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.userId).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('signup_user_id', j.userId);",
+                  "pm.collectionVariables.set('signup_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "01 Signup (integration trigger)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}"
+            },
+            "description": "무엇을 테스트하나요?\n- CryptoOrder 회원가입 API가 정상 동작하고 access/refresh 토큰을 발급하는지 확인합니다.\n- 이 호출이 RWA 지갑 프로비저닝(동기/비동기) 연계의 시작점입니다.\n통과 기준\n- HTTP 200\n- tokenType='Bearer'\n- accessToken, refreshToken, userId가 비어있지 않음",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "method": "POST",
+            "url": "{{cryptoorder_base_url}}/auth/signup"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key + 동일 payload 재호출 시, 재실행이 아니라 응답 재생(replay)되는지 확인합니다.\n통과 기준\n- HTTP 200\n- userId가 최초 Signup과 동일\n- accessToken이 최초 Signup 응답과 동일",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('same userId replayed', function () { pm.expect(j.userId).to.eql(pm.collectionVariables.get('signup_user_id')); });",
+                  "pm.test('same access token replayed', function () { pm.expect(j.accessToken).to.eql(pm.collectionVariables.get('signup_access_token')); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "02 Signup replay (same key + same payload)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}"
+            },
+            "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key + 동일 payload 재호출 시, 재실행이 아니라 응답 재생(replay)되는지 확인합니다.\n통과 기준\n- HTTP 200\n- userId가 최초 Signup과 동일\n- accessToken이 최초 Signup 응답과 동일",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "method": "POST",
+            "url": "{{cryptoorder_base_url}}/auth/signup"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key에 payload를 바꿔 보내면 충돌이 발생하는지 확인합니다.\n통과 기준\n- HTTP 409 Conflict",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "03 Signup conflict (same key + different payload)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id_conflict}}\"\n}"
+            },
+            "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key에 payload를 바꿔 보내면 충돌이 발생하는지 확인합니다.\n통과 기준\n- HTTP 409 Conflict",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "method": "POST",
+            "url": "{{cryptoorder_base_url}}/auth/signup"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 회원가입한 계정으로 로그인하여 토큰 발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('login returns tokens', function () {",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('login_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "04 Login",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\"\n}"
+            },
+            "description": "무엇을 테스트하나요?\n- 회원가입한 계정으로 로그인하여 토큰 발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_login}}"
+              }
+            ],
+            "method": "POST",
+            "url": "{{cryptoorder_base_url}}/auth/login"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- refresh token으로 토큰 재발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음\n- userId가 Signup userId와 동일",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('refresh returns tokens', function () {",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "});",
+                  "pm.collectionVariables.set('refreshed_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "05 Refresh",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"refreshToken\": \"{{active_refresh_token}}\"\n}"
+            },
+            "description": "무엇을 테스트하나요?\n- refresh token으로 토큰 재발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음\n- userId가 Signup userId와 동일",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_refresh}}"
+              }
+            ],
+            "method": "POST",
+            "url": "{{cryptoorder_base_url}}/auth/refresh"
+          }
+        }
+      ],
+      "name": "1) CryptoOrder Auth + Idempotency"
+    },
+    {
+      "item": [
+        {
+          "description": "무엇을 테스트하나요?\n- CryptoOrder에서 생성된 사용자 토큰으로 RWA /me 호출이 가능한지, 그리고 지갑 프로비저닝이 완료되었는지 확인합니다.\n- wallet-create 비동기 흐름을 고려해 WALLET_NOT_PROVISIONED(404)일 때 자동 재시도합니다.\n통과 기준\n- 최종적으로 HTTP 200\n- userId가 Signup userId와 동일\n- address가 0x + 40자리 지갑 형식\n- 최대 재시도 횟수 내 완료",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const code = pm.response.code;",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (code === 200) {",
+                  "  pm.test('userId matches signup', function () {",
+                  "    pm.expect(body.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "  });",
+                  "  pm.test('wallet address exists', function () {",
+                  "    pm.expect(body.address).to.match(/^0x[a-fA-F0-9]{40}$/);",
+                  "  });",
+                  "  pm.collectionVariables.set('rwa_user_id', body.userId);",
+                  "  pm.collectionVariables.set('rwa_wallet_address', body.address);",
+                  "  pm.collectionVariables.set('rwa_compliance_status', body.complianceStatus || '');",
+                  "  postman.setNextRequest(null);",
+                  "  return;",
+                  "}",
+                  "if (code === 404 && body.message === 'WALLET_NOT_PROVISIONED') {",
+                  "  const current = Number(pm.collectionVariables.get('poll_attempt') || '0') + 1;",
+                  "  const max = Number(pm.environment.get('poll_max_attempts') || pm.collectionVariables.get('poll_max_attempts') || '30');",
+                  "  pm.collectionVariables.set('poll_attempt', String(current));",
+                  "  if (current < max) {",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "    return;",
+                  "  }",
+                  "  pm.test('wallet should be provisioned within max attempts', function () {",
+                  "    pm.expect.fail(`Still WALLET_NOT_PROVISIONED after ${max} attempts`);",
+                  "  });",
+                  "  postman.setNextRequest(null);",
+                  "  return;",
+                  "}",
+                  "pm.test('unexpected response', function () {",
+                  "  pm.expect.fail(`Unexpected status=${code}, body=${pm.response.text()}`);",
+                  "});",
+                  "postman.setNextRequest(null);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "01 Poll /me until wallet provisioned",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- CryptoOrder에서 생성된 사용자 토큰으로 RWA /me 호출이 가능한지, 그리고 지갑 프로비저닝이 완료되었는지 확인합니다.\n- wallet-create 비동기 흐름을 고려해 WALLET_NOT_PROVISIONED(404)일 때 자동 재시도합니다.\n통과 기준\n- 최종적으로 HTTP 200\n- userId가 Signup userId와 동일\n- address가 0x + 40자리 지갑 형식\n- 최대 재시도 횟수 내 완료",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/me"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- RWA 보호 API(/me/wallet)가 Bearer 토큰으로 접근 가능한지와 지갑 상세 조회 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- address가 지갑 형식\n- 이전 /me에서 확인한 address와 동일",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('wallet address exists', function () { pm.expect(j.address).to.match(/^0x[a-fA-F0-9]{40}$/); });",
+                  "const expected = pm.collectionVariables.get('rwa_wallet_address');",
+                  "if (expected) {",
+                  "  pm.test('same address as /me', function () { pm.expect(j.address.toLowerCase()).to.eql(expected.toLowerCase()); });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "02 /me/wallet",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- RWA 보호 API(/me/wallet)가 Bearer 토큰으로 접근 가능한지와 지갑 상세 조회 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- address가 지갑 형식\n- 이전 /me에서 확인한 address와 동일",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/me/wallet"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- RWA 데이터 신선도 조회 API가 정상 응답하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답에 now 필드 존재",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('response has now', function () { pm.expect(j.now).to.exist; });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "03 /system/data-freshness",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- RWA 데이터 신선도 조회 API가 정상 응답하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답에 now 필드 존재",
+            "header": [],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/system/data-freshness"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 로그인 사용자 본인의 보유 자산(holdings) 조회가 가능한지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const arr = pm.response.json();",
+                  "pm.test('response is array', function () { pm.expect(Array.isArray(arr)).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "04 /users/{userId}/holdings",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- 로그인 사용자 본인의 보유 자산(holdings) 조회가 가능한지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/users/{{signup_user_id}}/holdings"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 로그인 사용자의 주문 목록 조회 API 접근 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const arr = pm.response.json();",
+                  "pm.test('response is array', function () { pm.expect(Array.isArray(arr)).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "05 /me/orders",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- 로그인 사용자의 주문 목록 조회 API 접근 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/me/orders?limit=20"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 로그인 사용자의 체결 이력 조회 API 접근 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const arr = pm.response.json();",
+                  "pm.test('response is array', function () { pm.expect(Array.isArray(arr)).to.eql(true); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "06 /me/trades",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- 로그인 사용자의 체결 이력 조회 API 접근 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/me/trades?limit=20"
+          }
+        },
+        {
+          "description": "무엇을 테스트하나요?\n- 공개 마켓 리스트 조회가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열(빈 배열 허용)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const arr = pm.response.json();",
+                  "pm.test('response is array', function () { pm.expect(Array.isArray(arr)).to.eql(true); });",
+                  "if (Array.isArray(arr) && arr.length > 0) {",
+                  "  const first = arr[0];",
+                  "  const listingId = first.listingId ?? first.listing_id;",
+                  "  if (listingId !== undefined && listingId !== null) {",
+                  "    pm.collectionVariables.set('first_listing_id', String(listingId));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "name": "07 /market/listings?status=ACTIVE",
+          "request": {
+            "description": "무엇을 테스트하나요?\n- 공개 마켓 리스트 조회가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답이 배열(빈 배열 허용)",
+            "header": [],
+            "method": "GET",
+            "url": "{{rwa_base_url}}/market/listings?status=ACTIVE"
+          }
+        }
+      ],
+      "name": "2) Cross-Service User Journey"
+    }
+  ],
+  "variable": [
+    {
+      "key": "cryptoorder_base_url",
+      "value": "http://<cryptoorder-lb-ip>"
+    },
+    {
+      "key": "rwa_base_url",
+      "value": "http://<rwa-lb-ip>"
+    },
+    {
+      "key": "provider",
+      "value": "MEMBER"
+    },
+    {
+      "key": "expect_jwks_mode",
+      "value": "true"
+    },
+    {
+      "key": "poll_max_attempts",
+      "value": "30"
+    }
+  ]
+}
