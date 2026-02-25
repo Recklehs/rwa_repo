@@ -44,7 +44,9 @@ Ingester does NOT:
 
 ## 2) Runtime config / env
 
-- `SHARED_DIR_PATH=../shared`
+- `SHARED_DIR_PATH`
+  - local host default: `../shared`
+  - AKS baseline: `/shared` (container image includes `/shared`)
 - `GIWA_RPC_URL=https://sepolia-rpc.giwa.io`
 - `KAFKA_BOOTSTRAP_SERVERS=...`
 - `KAFKA_TOPIC=chain.logs.raw`
@@ -52,19 +54,24 @@ Ingester does NOT:
 - `KAFKA_SECURITY_PROTOCOL` (optional; ex: `SASL_SSL` for Azure Event Hubs Kafka)
 - `KAFKA_SASL_MECHANISM` (optional; ex: `PLAIN`)
 - `KAFKA_SASL_JAAS_CONFIG` (optional; Event Hubs connection string auth)
-- `KAFKA_CLIENT_DNS_LOOKUP` (optional; ex: `use_all_dns_ips`)
+- `KAFKA_CLIENT_DNS_LOOKUP` (AKS baseline: `use_all_dns_ips`)
 - `KAFKA_REQUEST_TIMEOUT_MS=30000`
 - `KAFKA_DELIVERY_TIMEOUT_MS=120000`
 - `KAFKA_LINGER_MS=5`
 - `KAFKA_COMPRESSION_TYPE` (optional; ex: `gzip`)
 - `POLL_INTERVAL_MS=5000`
 - `MAX_BLOCK_RANGE=2000`
-- `STATE_STORE=postgres|file`
+- `STATE_STORE=postgres|file` (AKS baseline: `postgres`)
   - postgres: table `ingester_state(key text pk, value text)`
   - file: local file path (ex: `./state/lastProcessedBlock.txt`)
 
 Important:
 - `CONFIRMATIONS` MUST be loaded from `shared/config/constants.json` (default `12`).
+
+AKS operational baseline:
+- `SHARED_DIR_PATH=/shared`
+- `STATE_STORE=postgres`
+- `KAFKA_CLIENT_DNS_LOOKUP=use_all_dns_ips`
 
 ## 3) What to ingest (event subscriptions)
 
@@ -168,6 +175,30 @@ Ordering guidance:
 - Restart resumes from `lastProcessedBlock` without gaps.
 - Duplicates are acceptable (downstream dedup).
 
+## 8) AKS image/deploy policy (MUST)
+
+- Use repository Dockerfile: `ingester/Dockerfile`
+- Build/push with `docker buildx` and fixed target platform:
+  - `--platform linux/amd64`
+  - `-f ingester/Dockerfile`
+  - `--push`
+- Runtime image must be deterministic:
+  - build stage: `./gradlew clean installDist`
+  - runtime entrypoint: `/app/bin/ingester`
+  - include `/shared` in image for `SHARED_DIR_PATH=/shared` compatibility
+- Deploy assets live under `ingester/k8s/aks`:
+  - `create-env-secret.sh`, `deploy.sh`, `deployment.yaml`, `README.md`
+- `.env` split policy:
+  - ConfigMap: non-sensitive keys
+  - Secret: `KAFKA_SASL_JAAS_CONFIG,DB_URL,DB_USER,DB_PASSWORD`
+- Workload policy:
+  - `Deployment` only (no Service)
+  - single replica (`replicas: 1`)
+  - rollout strategy avoids overlap (`Recreate`)
+- Image tag policy:
+  - immutable tags only (`YYYYMMDD-HHMM-gitsha`)
+  - `latest` tag forbidden
+
 ## Implementation mapping (2026-02-19)
 
 - Runtime loader implemented:
@@ -184,6 +215,12 @@ Ordering guidance:
 - Kafka producer and raw/dlq envelope routing:
   - `ingester/src/main/java/io/rwa/ingester/kafka/KafkaRawLogPublisher.java`
   - Topic defaults: `chain.logs.raw` and `chain.logs.dlq`
+- AKS image/deploy assets:
+  - `ingester/Dockerfile`
+  - `ingester/k8s/aks/create-env-secret.sh`
+  - `ingester/k8s/aks/deploy.sh`
+  - `ingester/k8s/aks/deployment.yaml`
+  - `ingester/k8s/aks/README.md`
 
 ## Update policy
 
@@ -192,6 +229,15 @@ Ordering guidance:
 
 ## Change log
 
+- 2026-02-25: Added AKS image/deploy baseline for ingester to prevent server-class rollout failures.
+  - Added deterministic runtime image definition `ingester/Dockerfile` using `installDist` output (`/app/bin/ingester`) and bundled `/shared`.
+  - Standardized AKS image build to `linux/amd64` via `docker buildx build --platform linux/amd64 ... --push`.
+  - Added AKS deployment assets under `ingester/k8s/aks`:
+    - `.env` split into `rwa-ingester-config` (ConfigMap) and `rwa-ingester-secret` (Secret).
+    - Deployment runs single replica with `Recreate`, no Service.
+    - Enforced immutable image tags (`latest` disallowed in deploy script).
+    - Added `KAFKA_CLIENT_DNS_LOOKUP=use_all_dns_ips` and `STATE_STORE=postgres` validation in env apply script.
+  - Set AKS operational defaults in env contract: `SHARED_DIR_PATH=/shared`, `STATE_STORE=postgres`.
 - 2026-02-19: Initialized SPEC3 v4.1 baseline in ingester.
   - Added runtime shared loaders (`shared/deployments`, `shared/abi`, `shared/config/constants`) and ABI-derived topic computation.
   - Added windowed log polling with confirmations and adaptive range reduction.

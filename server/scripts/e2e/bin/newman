@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Prefer a real newman binary in PATH excluding this wrapper dir.
+IFS=':' read -r -a PATH_ARR <<< "$PATH"
+for p in "${PATH_ARR[@]}"; do
+  if [[ "$p" == "$SELF_DIR" ]]; then
+    continue
+  fi
+  if [[ -x "$p/newman" ]]; then
+    exec "$p/newman" "$@"
+  fi
+done
+
+if command -v npx >/dev/null 2>&1; then
+  exec npx --yes newman "$@"
+fi
+
+echo "newman not found and npx unavailable" >&2
+exit 127

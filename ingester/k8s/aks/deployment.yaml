@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __APP_NAME__
+  labels:
+    app: __APP_NAME__
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: __APP_NAME__
+  template:
+    metadata:
+      labels:
+        app: __APP_NAME__
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: ingester
+        image: __IMAGE__
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: SHARED_DIR_PATH
+          value: /shared
+        - name: STATE_STORE
+          value: postgres
+        - name: KAFKA_CLIENT_DNS_LOOKUP
+          value: use_all_dns_ips
+        envFrom:
+        - configMapRef:
+            name: __CONFIGMAP_NAME__
+        - secretRef:
+            name: __SECRET_NAME__
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1024Mi

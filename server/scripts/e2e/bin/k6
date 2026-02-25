@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/../../../.." && pwd)"
+
+# Prefer a real k6 binary in PATH excluding this wrapper dir.
+IFS=':' read -r -a PATH_ARR <<< "$PATH"
+for p in "${PATH_ARR[@]}"; do
+  if [[ "$p" == "$SELF_DIR" ]]; then
+    continue
+  fi
+  if [[ -x "$p/k6" ]]; then
+    exec "$p/k6" "$@"
+  fi
+done
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "k6 not found and docker unavailable" >&2
+  exit 127
+fi
+
+translated=()
+for arg in "$@"; do
+  if [[ "$arg" == "$ROOT_DIR"/* ]]; then
+    translated+=("/workspace/${arg#$ROOT_DIR/}")
+  else
+    translated+=("$arg")
+  fi
+done
+
+exec docker run --rm -i \
+  -v "$ROOT_DIR:/workspace" \
+  -w /workspace \
+  grafana/k6:0.49.0 \
+  "${translated[@]}"

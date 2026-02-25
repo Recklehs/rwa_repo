@@ -62,6 +62,7 @@ build/
 server/build/
 server/bin/
 server/.gradle-home/
+**/.gradle-home/
 server/*.tar
 ingester/build/
 flink/build/
@@ -90,6 +91,9 @@ pg-data/
 docker-compose.override.yml
 monitoring-stack/prometheus/prometheus.yml
 server/scripts/postman/rwa-cryptoorder-k8s-deploy-check.postman_environment.json
+server/scripts/postman/results/
+server/scripts/e2e/results/*
+!server/scripts/e2e/results/.gitkeep
 
 # --- Local application configs (contains secrets in many setups) ---
 **/application-local.yml

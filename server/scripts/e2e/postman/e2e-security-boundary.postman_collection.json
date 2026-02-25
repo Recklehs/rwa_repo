@@ -1,0 +1,122 @@
+{
+  "info": {
+    "_postman_id": "dce38f32-ec2a-41bf-bbc8-bfcff6f6f001",
+    "name": "E2E Security Boundary",
+    "description": "Boundary checks for headers/auth on CryptoOrder + RWA",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 Internal Provision Missing Idempotency-Key -> 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Service-Token", "value": "{{service_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"3e8d4ac1-13a2-4f6f-9d25-8367f5d4f1a2\",\n  \"provider\": \"MEMBER\",\n  \"externalUserId\": \"security-missing-idem\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{rwa_base_url}}/internal/wallets/provision"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 400', function () { pm.response.to.have.status(400); });"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "02 Internal Provision Missing Service Token -> 401",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "security-missing-service-token" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"76a8561f-a702-4f90-a626-33de1a06bc4e\",\n  \"provider\": \"MEMBER\",\n  \"externalUserId\": \"security-missing-service-token\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{rwa_base_url}}/internal/wallets/provision"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "03 Admin API Missing X-Admin-Token -> 401",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/admin/compliance/users?status=APPROVED"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "04 Missing Bearer on /me -> 401",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/me"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "05 Missing Bearer on /tx/outbox -> 401",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/tx/outbox/00000000-0000-0000-0000-000000000000"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "06 Missing Bearer on /users/{id}/holdings -> 401",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/users/00000000-0000-0000-0000-000000000000/holdings"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status is 401', function () { pm.response.to.have.status(401); });"
+          ] }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "info": {
+    "_postman_id": "d5c9f79b-59f9-4818-bf33-e869a70ebbe0",
+    "name": "E2E Ops Observability",
+    "description": "Operational observability checks for metrics/indexer/freshness",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 CryptoOrder Prometheus",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{cryptoorder_base_url}}/actuator/prometheus"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('prometheus text exists', function () { pm.expect(pm.response.text()).to.include('#'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 RWA Prometheus",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/actuator/prometheus"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('prometheus text exists', function () { pm.expect(pm.response.text()).to.include('#'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Indexer Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-Admin-Token", "value": "{{admin_token}}" }
+        ],
+        "url": "{{rwa_base_url}}/admin/indexer/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "const j = pm.response.json();",
+              "pm.test('has processedEventsCount', function () { pm.expect(j).to.have.property('processedEventsCount'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Data Freshness",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{rwa_base_url}}/system/data-freshness"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
