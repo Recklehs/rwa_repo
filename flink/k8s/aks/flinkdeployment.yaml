@@ -1,0 +1,53 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: __APP_NAME__
+  labels:
+    app: __APP_NAME__
+spec:
+  image: __IMAGE__
+  imagePullPolicy: IfNotPresent
+  flinkVersion: v1_20
+  serviceAccount: __SERVICE_ACCOUNT__
+  mode: native
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"
+    state.checkpoints.dir: file:///flink-data/checkpoints
+    state.savepoints.dir: file:///flink-data/savepoints
+  podTemplate:
+    metadata:
+      labels:
+        app: __APP_NAME__
+    spec:
+      volumes:
+      - name: flink-state
+        persistentVolumeClaim:
+          claimName: __PVC_NAME__
+      containers:
+      - name: flink-main-container
+        env:
+        - name: SHARED_DIR_PATH
+          value: /opt/shared
+        envFrom:
+        - configMapRef:
+            name: __CONFIGMAP_NAME__
+        - secretRef:
+            name: __SECRET_NAME__
+        volumeMounts:
+        - name: flink-state
+          mountPath: /flink-data
+  jobManager:
+    resource:
+      cpu: 1
+      memory: "2048m"
+  taskManager:
+    resource:
+      cpu: 1
+      memory: "2048m"
+    replicas: 1
+  job:
+    jarURI: local:///opt/flink/usrlib/rwa-flink-indexer.jar
+    entryClass: io.rwa.flink.FlinkIndexerApplication
+    parallelism: 1
+    upgradeMode: last-state
+    state: running

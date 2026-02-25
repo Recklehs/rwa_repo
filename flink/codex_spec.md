@@ -190,7 +190,8 @@ Implementation note:
 
 Main env keys (see `flink/.env.example`):
 - Shared/config:
-  - `SHARED_DIR_PATH=../shared`
+  - local host default: `SHARED_DIR_PATH=../shared`
+  - AKS baseline: `SHARED_DIR_PATH=/opt/shared` (image includes `/opt/shared`)
   - `GIWA_CHAIN_ID=91342`
 - Kafka:
   - `KAFKA_BOOTSTRAP_SERVERS`
@@ -205,7 +206,45 @@ Main env keys (see `flink/.env.example`):
   - `SINK_PARALLELISM`
   - `FILTER_MODE`
 
-## 10) Implementation mapping
+## 10) AKS deployment policy (MUST)
+
+- Use repository Dockerfile as SSOT: `flink/Dockerfile`
+- Build/push image with `docker buildx` and fixed platform:
+  - `--platform linux/amd64`
+  - `-f flink/Dockerfile`
+  - `--push`
+- Build artifact contract:
+  - app jar name is fixed to `rwa-flink-indexer.jar`
+  - container jarURI is fixed to `local:///opt/flink/usrlib/rwa-flink-indexer.jar`
+  - runtime dependencies are copied into `/opt/flink/usrlib/`
+- Runtime shared-path compatibility:
+  - image bundles `/opt/shared`
+  - deployment sets `SHARED_DIR_PATH=/opt/shared`
+- AKS deploy assets:
+  - `flink/k8s/aks/create-env-secret.sh`
+  - `flink/k8s/aks/deploy.sh`
+  - `flink/k8s/aks/rbac.yaml`
+  - `flink/k8s/aks/flinkdeployment.yaml`
+  - `flink/k8s/aks/pvc.yaml`
+  - `flink/k8s/aks/README.md`
+- `.env` split policy:
+  - ConfigMap: non-sensitive keys
+  - Secret default keys: `DB_PASSWORD,KAFKA_SASL_JAAS_CONFIG`
+- Deployment preflight policy:
+  - fail fast when `kubectl` is missing
+  - fail fast when Flink CRD (`flinkdeployments.flink.apache.org`) is missing
+  - fail fast when `IMAGE` is missing
+  - immutable image tags only (`latest` forbidden)
+- Runtime RBAC policy:
+  - dedicated service account baseline: `rwa-flink`
+  - namespace role must allow pods/service/configmap/deployment operations required by Flink native mode
+- State policy:
+  - PVC name baseline: `rwa-flink-state`
+  - checkpoint path: `file:///flink-data/checkpoints`
+  - savepoint path: `file:///flink-data/savepoints`
+  - `job.upgradeMode=last-state`
+
+## 11) Implementation mapping
 
 ### Entry point and pipeline
 - `flink/src/main/java/io/rwa/flink/FlinkIndexerApplication.java`
@@ -230,9 +269,11 @@ Main env keys (see `flink/.env.example`):
 
 ### Build/runtime
 - `flink/build.gradle`
+- `flink/Dockerfile`
 - `flink/.env.example`
+- `flink/k8s/aks/*`
 
-## 11) Acceptance criteria checklist
+## 12) Acceptance criteria checklist
 
 - No allowlist/KYC contract/event references in Flink code.
 - Runtime loads addresses/ABIs/constants from `shared/*`.
@@ -243,8 +284,11 @@ Main env keys (see `flink/.env.example`):
 - `listings.id` uses on-chain listingId explicit upsert.
 - Duplicate Kafka messages do not double-apply business mutations.
 - Out-of-order tolerance via listing stub upsert and best-effort fill state.
+- AKS image build is reproducible from repository Dockerfile.
+- AKS runtime uses `linux/amd64` image and avoids `exec format error`.
+- FlinkDeployment reaches `READY/RUNNING` with envFrom(ConfigMap+Secret) and PVC mounted state paths.
 
-## 12) Operational note: sink connection model
+## 13) Operational note: sink connection model
 
 Current sink model:
 - Reuses one JDBC connection per Flink sink subtask.
@@ -254,20 +298,34 @@ Current sink model:
 
 This preserves correctness while reducing per-event connection overhead.
 
-## 13) Tests
+## 14) Tests
 
 - `cd flink && ./gradlew test`
 - Key tests:
   - `SharedRuntimeResourcesLoaderTest`
   - `ChainLogEventDecoderTest`
+- Deployment smoke checks:
+  - `kubectl -n rwa get flinkdeployment <app> -o wide`
+  - status expectations: `jobManagerDeploymentStatus=READY`, `jobStatus.state=RUNNING`
 
-## 14) Update policy
+## 15) Update policy
 
 - This file is the Flink module source-of-truth spec for this implementation baseline.
 - Any change to Flink behavior (decode scope, dedup/transaction semantics, schema assumptions, env contract) must update this file in the same change.
 
 ## Change log
 
+- 2026-02-25: Added Flink AKS image/deploy baseline to prevent server-class rollout failures.
+  - Added deterministic runtime image definition `flink/Dockerfile` (Flink 1.20 Java17 base + fixed jarURI contract + bundled `/opt/shared`).
+  - Standardized AKS image build to `linux/amd64` via `docker buildx build --platform linux/amd64 ... --push`.
+  - Added AKS deployment assets under `flink/k8s/aks`:
+    - `.env` split into `rwa-flink-config` (ConfigMap) and `rwa-flink-secret` (Secret).
+    - `deploy.sh` preflight validates `kubectl`, Flink CRD, immutable image tag, and required ConfigMap/Secret.
+    - Added runtime RBAC baseline (`rwa-flink` ServiceAccount + namespace Role/RoleBinding) to avoid `pods is forbidden` startup failures.
+    - Added PVC baseline (`rwa-flink-state`) and fixed state paths (`file:///flink-data/checkpoints`, `file:///flink-data/savepoints`).
+  - Fixed build artifact contract in `flink/build.gradle`:
+    - jar name pinned to `rwa-flink-indexer.jar`
+    - added `copyRuntimeDepsForImage` task for runtime dependency packaging.
 - 2026-02-22: Initialized `flink/codex_spec.md` for SPEC4 v4.1.1 baseline.
 - 2026-02-22: Implemented Flink indexer pipeline for market/ERC1155 read-model indexing.
 - 2026-02-22: Added DB constraint migration dependency (`V11`) and shared schema alignment.

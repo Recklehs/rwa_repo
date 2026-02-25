@@ -22,7 +22,6 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
-import org.apache.kafka.common.serialization.StringDeserializer;
 
 public class FlinkIndexerApplication {
 
@@ -95,8 +94,6 @@ public class FlinkIndexerApplication {
             .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
             .setValueOnlyDeserializer(new SimpleStringSchema());
 
-        builder.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        builder.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         builder.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         builder.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 

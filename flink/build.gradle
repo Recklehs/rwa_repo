@@ -37,3 +37,16 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+tasks.named('jar') {
+    archiveFileName = 'rwa-flink-indexer.jar'
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
+}
+
+tasks.register('copyRuntimeDepsForImage', Copy) {
+    dependsOn tasks.named('jar')
+    from configurations.runtimeClasspath
+    into layout.buildDirectory.dir('image-libs')
+}
