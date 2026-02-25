@@ -16,6 +16,7 @@ public record IngesterConfig(
     String kafkaSaslMechanism,
     String kafkaSaslJaasConfig,
     String kafkaClientDnsLookup,
+    boolean kafkaEnableIdempotence,
     int kafkaRequestTimeoutMs,
     int kafkaDeliveryTimeoutMs,
     int kafkaLingerMs,
@@ -42,6 +43,10 @@ public record IngesterConfig(
         String kafkaSaslMechanism = envOrDefault(env, "KAFKA_SASL_MECHANISM", "");
         String kafkaSaslJaasConfig = envOrDefault(env, "KAFKA_SASL_JAAS_CONFIG", "");
         String kafkaClientDnsLookup = envOrDefault(env, "KAFKA_CLIENT_DNS_LOOKUP", "");
+        boolean kafkaEnableIdempotence = parseBoolean(
+            envOrDefault(env, "KAFKA_ENABLE_IDEMPOTENCE", "false"),
+            "KAFKA_ENABLE_IDEMPOTENCE"
+        );
         int kafkaRequestTimeoutMs = parseInt(envOrDefault(env, "KAFKA_REQUEST_TIMEOUT_MS", "30000"), "KAFKA_REQUEST_TIMEOUT_MS");
         int kafkaDeliveryTimeoutMs = parseInt(envOrDefault(env, "KAFKA_DELIVERY_TIMEOUT_MS", "120000"), "KAFKA_DELIVERY_TIMEOUT_MS");
         int kafkaLingerMs = parseInt(envOrDefault(env, "KAFKA_LINGER_MS", "5"), "KAFKA_LINGER_MS");
@@ -89,6 +94,7 @@ public record IngesterConfig(
             kafkaSaslMechanism,
             kafkaSaslJaasConfig,
             kafkaClientDnsLookup,
+            kafkaEnableIdempotence,
             kafkaRequestTimeoutMs,
             kafkaDeliveryTimeoutMs,
             kafkaLingerMs,
@@ -134,6 +140,17 @@ public record IngesterConfig(
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("STATE_STORE must be one of: postgres, file");
         }
+    }
+
+    private static boolean parseBoolean(String value, String key) {
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(normalized)) {
+            return true;
+        }
+        if ("false".equals(normalized)) {
+            return false;
+        }
+        throw new IllegalArgumentException(key + " must be true or false");
     }
 
     public enum StateStoreType {

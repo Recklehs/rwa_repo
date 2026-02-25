@@ -55,6 +55,7 @@ Ingester does NOT:
 - `KAFKA_SASL_MECHANISM` (optional; ex: `PLAIN`)
 - `KAFKA_SASL_JAAS_CONFIG` (optional; Event Hubs connection string auth)
 - `KAFKA_CLIENT_DNS_LOOKUP` (AKS baseline: `use_all_dns_ips`)
+- `KAFKA_ENABLE_IDEMPOTENCE` (AKS/Event Hubs baseline: `false`)
 - `KAFKA_REQUEST_TIMEOUT_MS=30000`
 - `KAFKA_DELIVERY_TIMEOUT_MS=120000`
 - `KAFKA_LINGER_MS=5`
@@ -72,6 +73,7 @@ AKS operational baseline:
 - `SHARED_DIR_PATH=/shared`
 - `STATE_STORE=postgres`
 - `KAFKA_CLIENT_DNS_LOOKUP=use_all_dns_ips`
+- `KAFKA_ENABLE_IDEMPOTENCE=false` (Event Hubs compatibility)
 
 ## 3) What to ingest (event subscriptions)
 
@@ -238,6 +240,10 @@ Ordering guidance:
     - Enforced immutable image tags (`latest` disallowed in deploy script).
     - Added `KAFKA_CLIENT_DNS_LOOKUP=use_all_dns_ips` and `STATE_STORE=postgres` validation in env apply script.
   - Set AKS operational defaults in env contract: `SHARED_DIR_PATH=/shared`, `STATE_STORE=postgres`.
+- 2026-02-25: Added Kafka idempotence toggle for Event Hubs compatibility.
+  - Added runtime env `KAFKA_ENABLE_IDEMPOTENCE` (default `false`).
+  - Wired producer setting `enable.idempotence` to env-driven toggle.
+  - Updated env template/AKS baseline docs to keep Event Hubs default at `false`.
 - 2026-02-19: Initialized SPEC3 v4.1 baseline in ingester.
   - Added runtime shared loaders (`shared/deployments`, `shared/abi`, `shared/config/constants`) and ABI-derived topic computation.
   - Added windowed log polling with confirmations and adaptive range reduction.

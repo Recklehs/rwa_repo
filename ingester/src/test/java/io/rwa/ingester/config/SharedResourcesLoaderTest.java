@@ -24,6 +24,7 @@ class SharedResourcesLoaderTest {
             "",
             "",
             "",
+            false,
             30000,
             120000,
             5,
