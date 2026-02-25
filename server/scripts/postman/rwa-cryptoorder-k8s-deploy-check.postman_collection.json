@@ -1,0 +1,910 @@
+{
+  "info": {
+    "_postman_id": "8f1b9a8f-b70a-4e9d-913e-4018d3c4c82a",
+    "name": "RWA x CryptoOrder K8s Deploy Check",
+    "description": "Kubernetes 배포 점검용 통합 시나리오. CryptoOrder 회원가입/인증, RWA 지갑 프로비저닝 연계, 관리자 컴플라이언스 API, 내부 서비스 토큰 API를 검증합니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "cryptoorder_base_url",
+      "value": "http://<cryptoorder-lb-ip>"
+    },
+    {
+      "key": "rwa_base_url",
+      "value": "http://<rwa-lb-ip>"
+    },
+    {
+      "key": "provider",
+      "value": "MEMBER"
+    },
+    {
+      "key": "expect_jwks_mode",
+      "value": "true"
+    },
+    {
+      "key": "poll_max_attempts",
+      "value": "30"
+    }
+  ],
+  "item": [
+    {
+      "name": "0) Health & Public",
+      "item": [
+        {
+          "name": "01 RWA Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rwa_base_url}}/actuator/health",
+            "description": "무엇을 테스트하나요?\n- RWA 서버 LoadBalancer 경로가 열려 있고 애플리케이션이 정상 기동(health) 상태인지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('health status is UP', function () { pm.expect(j.status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- RWA 서버 LoadBalancer 경로가 열려 있고 애플리케이션이 정상 기동(health) 상태인지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'"
+        },
+        {
+          "name": "02 CryptoOrder Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/actuator/health",
+            "description": "무엇을 테스트하나요?\n- CryptoOrder 서버 LoadBalancer 경로와 헬스 체크 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('health status is UP', function () { pm.expect(j.status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- CryptoOrder 서버 LoadBalancer 경로와 헬스 체크 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON의 status가 'UP'"
+        },
+        {
+          "name": "03 CryptoOrder JWKS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/.well-known/jwks.json",
+            "description": "무엇을 테스트하나요?\n- CryptoOrder의 JWKS 공개키 엔드포인트가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON에 keys 배열 존재\n- expect_jwks_mode=true인 경우 keys 길이 > 0"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('keys is array', function () { pm.expect(Array.isArray(j.keys)).to.eql(true); });",
+                  "if ((pm.environment.get('expect_jwks_mode') || pm.collectionVariables.get('expect_jwks_mode') || 'true') === 'true') {",
+                  "  pm.test('at least one key in JWKS mode', function () { pm.expect(j.keys.length > 0).to.eql(true); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- CryptoOrder의 JWKS 공개키 엔드포인트가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 JSON에 keys 배열 존재\n- expect_jwks_mode=true인 경우 keys 길이 > 0"
+        }
+      ]
+    },
+    {
+      "name": "1) CryptoOrder Auth + Idempotency",
+      "item": [
+        {
+          "name": "01 Signup (integration trigger)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const runId = pm.variables.replaceIn('{{$guid}}');",
+                  "const ts = Date.now();",
+                  "const seg = () => String(Math.floor(Math.random() * 9000) + 1000);",
+                  "pm.collectionVariables.set('run_id', runId);",
+                  "pm.collectionVariables.set('signup_name', 'K8s Integration User');",
+                  "pm.collectionVariables.set('signup_phone', `010-${seg()}-${seg()}`);",
+                  "pm.collectionVariables.set('signup_birth_date', '1995-01-01');",
+                  "pm.collectionVariables.set('signup_login_id', `member_${ts}`);",
+                  "pm.collectionVariables.set('signup_password', 'Passw0rd!123');",
+                  "pm.collectionVariables.set('signup_provider', pm.environment.get('provider') || pm.collectionVariables.get('provider') || 'MEMBER');",
+                  "pm.collectionVariables.set('signup_external_user_id', `ext_${runId}`);",
+                  "pm.collectionVariables.set('signup_external_user_id_conflict', `ext_conflict_${runId}`);",
+                  "pm.collectionVariables.set('idem_signup', `signup-${runId}`);",
+                  "pm.collectionVariables.set('idem_login', `login-${runId}`);",
+                  "pm.collectionVariables.set('idem_refresh', `refresh-${runId}`);",
+                  "pm.collectionVariables.set('poll_attempt', '0');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('token payload exists', function () {",
+                  "  pm.expect(j.tokenType).to.eql('Bearer');",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.userId).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('signup_user_id', j.userId);",
+                  "pm.collectionVariables.set('signup_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup",
+            "description": "무엇을 테스트하나요?\n- CryptoOrder 회원가입 API가 정상 동작하고 access/refresh 토큰을 발급하는지 확인합니다.\n- 이 호출이 RWA 지갑 프로비저닝(동기/비동기) 연계의 시작점입니다.\n통과 기준\n- HTTP 200\n- tokenType='Bearer'\n- accessToken, refreshToken, userId가 비어있지 않음"
+          },
+          "description": "무엇을 테스트하나요?\n- CryptoOrder 회원가입 API가 정상 동작하고 access/refresh 토큰을 발급하는지 확인합니다.\n- 이 호출이 RWA 지갑 프로비저닝(동기/비동기) 연계의 시작점입니다.\n통과 기준\n- HTTP 200\n- tokenType='Bearer'\n- accessToken, refreshToken, userId가 비어있지 않음"
+        },
+        {
+          "name": "02 Signup replay (same key + same payload)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('same userId replayed', function () { pm.expect(j.userId).to.eql(pm.collectionVariables.get('signup_user_id')); });",
+                  "pm.test('same access token replayed', function () { pm.expect(j.accessToken).to.eql(pm.collectionVariables.get('signup_access_token')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup",
+            "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key + 동일 payload 재호출 시, 재실행이 아니라 응답 재생(replay)되는지 확인합니다.\n통과 기준\n- HTTP 200\n- userId가 최초 Signup과 동일\n- accessToken이 최초 Signup 응답과 동일"
+          },
+          "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key + 동일 payload 재호출 시, 재실행이 아니라 응답 재생(replay)되는지 확인합니다.\n통과 기준\n- HTTP 200\n- userId가 최초 Signup과 동일\n- accessToken이 최초 Signup 응답과 동일"
+        },
+        {
+          "name": "03 Signup conflict (same key + different payload)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id_conflict}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup",
+            "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key에 payload를 바꿔 보내면 충돌이 발생하는지 확인합니다.\n통과 기준\n- HTTP 409 Conflict"
+          },
+          "description": "무엇을 테스트하나요?\n- 동일 Idempotency-Key에 payload를 바꿔 보내면 충돌이 발생하는지 확인합니다.\n통과 기준\n- HTTP 409 Conflict"
+        },
+        {
+          "name": "04 Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('login returns tokens', function () {",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('login_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_login}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/login",
+            "description": "무엇을 테스트하나요?\n- 회원가입한 계정으로 로그인하여 토큰 발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음"
+          },
+          "description": "무엇을 테스트하나요?\n- 회원가입한 계정으로 로그인하여 토큰 발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음"
+        },
+        {
+          "name": "05 Refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('refresh returns tokens', function () {",
+                  "  pm.expect(j.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(j.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "});",
+                  "pm.collectionVariables.set('refreshed_access_token', j.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', j.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_refresh}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{active_refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/refresh",
+            "description": "무엇을 테스트하나요?\n- refresh token으로 토큰 재발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음\n- userId가 Signup userId와 동일"
+          },
+          "description": "무엇을 테스트하나요?\n- refresh token으로 토큰 재발급이 정상인지 확인합니다.\n통과 기준\n- HTTP 200\n- accessToken, refreshToken이 비어있지 않음\n- userId가 Signup userId와 동일"
+        }
+      ]
+    },
+    {
+      "name": "2) Cross-Service: CryptoOrder Token -> RWA",
+      "item": [
+        {
+          "name": "01 Poll /me until wallet provisioned",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const code = pm.response.code;",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (code === 200) {",
+                  "  pm.test('userId matches signup', function () {",
+                  "    pm.expect(body.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "  });",
+                  "  pm.test('wallet address exists', function () {",
+                  "    pm.expect(body.address).to.match(/^0x[a-fA-F0-9]{40}$/);",
+                  "  });",
+                  "  pm.collectionVariables.set('rwa_user_id', body.userId);",
+                  "  pm.collectionVariables.set('rwa_wallet_address', body.address);",
+                  "  pm.collectionVariables.set('rwa_compliance_status', body.complianceStatus || '');",
+                  "  postman.setNextRequest(null);",
+                  "  return;",
+                  "}",
+                  "if (code === 404 && body.message === 'WALLET_NOT_PROVISIONED') {",
+                  "  const current = Number(pm.collectionVariables.get('poll_attempt') || '0') + 1;",
+                  "  const max = Number(pm.environment.get('poll_max_attempts') || pm.collectionVariables.get('poll_max_attempts') || '30');",
+                  "  pm.collectionVariables.set('poll_attempt', String(current));",
+                  "  if (current < max) {",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "    return;",
+                  "  }",
+                  "  pm.test('wallet should be provisioned within max attempts', function () {",
+                  "    pm.expect.fail(`Still WALLET_NOT_PROVISIONED after ${max} attempts`);",
+                  "  });",
+                  "  postman.setNextRequest(null);",
+                  "  return;",
+                  "}",
+                  "pm.test('unexpected response', function () {",
+                  "  pm.expect.fail(`Unexpected status=${code}, body=${pm.response.text()}`);",
+                  "});",
+                  "postman.setNextRequest(null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "url": "{{rwa_base_url}}/me",
+            "description": "무엇을 테스트하나요?\n- CryptoOrder에서 생성된 사용자 토큰으로 RWA /me 호출이 가능한지, 그리고 지갑 프로비저닝이 완료되었는지 확인합니다.\n- wallet-create 비동기 흐름을 고려해 WALLET_NOT_PROVISIONED(404)일 때 자동 재시도합니다.\n통과 기준\n- 최종적으로 HTTP 200\n- userId가 Signup userId와 동일\n- address가 0x + 40자리 지갑 형식\n- 최대 재시도 횟수 내 완료"
+          },
+          "description": "무엇을 테스트하나요?\n- CryptoOrder에서 생성된 사용자 토큰으로 RWA /me 호출이 가능한지, 그리고 지갑 프로비저닝이 완료되었는지 확인합니다.\n- wallet-create 비동기 흐름을 고려해 WALLET_NOT_PROVISIONED(404)일 때 자동 재시도합니다.\n통과 기준\n- 최종적으로 HTTP 200\n- userId가 Signup userId와 동일\n- address가 0x + 40자리 지갑 형식\n- 최대 재시도 횟수 내 완료"
+        },
+        {
+          "name": "02 /me/wallet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('wallet address exists', function () { pm.expect(j.address).to.match(/^0x[a-fA-F0-9]{40}$/); });",
+                  "const expected = pm.collectionVariables.get('rwa_wallet_address');",
+                  "if (expected) {",
+                  "  pm.test('same address as /me', function () { pm.expect(j.address.toLowerCase()).to.eql(expected.toLowerCase()); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshed_access_token}}"
+              }
+            ],
+            "url": "{{rwa_base_url}}/me/wallet",
+            "description": "무엇을 테스트하나요?\n- RWA 보호 API(/me/wallet)가 Bearer 토큰으로 접근 가능한지와 지갑 상세 조회 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- address가 지갑 형식\n- 이전 /me에서 확인한 address와 동일"
+          },
+          "description": "무엇을 테스트하나요?\n- RWA 보호 API(/me/wallet)가 Bearer 토큰으로 접근 가능한지와 지갑 상세 조회 가능 여부를 확인합니다.\n통과 기준\n- HTTP 200\n- address가 지갑 형식\n- 이전 /me에서 확인한 address와 동일"
+        },
+        {
+          "name": "03 /system/data-freshness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rwa_base_url}}/system/data-freshness",
+            "description": "무엇을 테스트하나요?\n- RWA 데이터 신선도 조회 API가 정상 응답하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답에 now 필드 존재"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('response has now', function () { pm.expect(j.now).to.exist; });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- RWA 데이터 신선도 조회 API가 정상 응답하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답에 now 필드 존재"
+        }
+      ]
+    },
+    {
+      "name": "3) Admin Checks (requires X-Admin-Token)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.environment.get('admin_token');",
+              "if (!token) { throw new Error('environment variable admin_token is required for this folder'); }"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "01 Lookup user by external",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{rwa_base_url}}/admin/users/by-external?externalUserId={{signup_external_user_id}}&provider={{signup_provider}}",
+              "host": [
+                "{{rwa_base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "by-external"
+              ],
+              "query": [
+                {
+                  "key": "externalUserId",
+                  "value": "{{signup_external_user_id}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{signup_provider}}"
+                }
+              ]
+            },
+            "description": "무엇을 테스트하나요?\n- 관리자 API로 provider + externalUserId 매핑이 정상 저장되었는지 확인합니다.\n통과 기준\n- HTTP 200\n- 반환 userId가 Signup userId와 동일"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('userId matches signup user', function () { pm.expect(j.userId).to.eql(pm.collectionVariables.get('signup_user_id')); });",
+                  "pm.collectionVariables.set('rwa_user_id', j.userId);"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- 관리자 API로 provider + externalUserId 매핑이 정상 저장되었는지 확인합니다.\n통과 기준\n- HTTP 200\n- 반환 userId가 Signup userId와 동일"
+        },
+        {
+          "name": "02 Approve compliance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "admin-approve-{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{signup_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{rwa_base_url}}/admin/compliance/approve",
+            "description": "무엇을 테스트하나요?\n- 관리자 컴플라이언스 승인 API가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 status='APPROVED'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('compliance status is APPROVED', function () { pm.expect(j.status).to.eql('APPROVED'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- 관리자 컴플라이언스 승인 API가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 status='APPROVED'"
+        },
+        {
+          "name": "03 Lookup after approve",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{rwa_base_url}}/admin/users/by-external?externalUserId={{signup_external_user_id}}&provider={{signup_provider}}",
+              "host": [
+                "{{rwa_base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "by-external"
+              ],
+              "query": [
+                {
+                  "key": "externalUserId",
+                  "value": "{{signup_external_user_id}}"
+                },
+                {
+                  "key": "provider",
+                  "value": "{{signup_provider}}"
+                }
+              ]
+            },
+            "description": "무엇을 테스트하나요?\n- 승인 후 사용자 조회 시 컴플라이언스 상태가 실제로 반영되었는지 확인합니다.\n통과 기준\n- HTTP 200\n- complianceStatus='APPROVED'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('status changed to APPROVED', function () { pm.expect(j.complianceStatus).to.eql('APPROVED'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- 승인 후 사용자 조회 시 컴플라이언스 상태가 실제로 반영되었는지 확인합니다.\n통과 기준\n- HTTP 200\n- complianceStatus='APPROVED'"
+        },
+        {
+          "name": "04 List approved users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{admin_token}}"
+              }
+            ],
+            "url": "{{rwa_base_url}}/admin/compliance/users?status=APPROVED",
+            "description": "무엇을 테스트하나요?\n- APPROVED 사용자 목록 조회 결과에 테스트 사용자가 포함되는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 배열에 Signup userId 포함"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const arr = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('approved list contains user', function () {",
+                  "  const target = pm.collectionVariables.get('signup_user_id');",
+                  "  const exists = Array.isArray(arr) && arr.some(v => v.userId === target);",
+                  "  pm.expect(exists).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- APPROVED 사용자 목록 조회 결과에 테스트 사용자가 포함되는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 배열에 Signup userId 포함"
+        },
+        {
+          "name": "05 Indexer status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Admin-Token",
+                "value": "{{admin_token}}"
+              }
+            ],
+            "url": "{{rwa_base_url}}/admin/indexer/status",
+            "description": "무엇을 테스트하나요?\n- 관리자 인덱서 상태 조회 API 접근 가능 여부와 기본 메트릭 노출을 확인합니다.\n통과 기준\n- HTTP 200\n- processedEventsCount 필드 존재"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('processedEventsCount exists', function () { pm.expect(j).to.have.property('processedEventsCount'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- 관리자 인덱서 상태 조회 API 접근 가능 여부와 기본 메트릭 노출을 확인합니다.\n통과 기준\n- HTTP 200\n- processedEventsCount 필드 존재"
+        }
+      ]
+    },
+    {
+      "name": "4) Internal API Checks (requires X-Service-Token)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.environment.get('service_token');",
+              "if (!token) { throw new Error('environment variable service_token is required for this folder'); }"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "01 Internal provision success",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('internal_user_id', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.collectionVariables.set('internal_external_user_id', `internal_${Date.now()}`);",
+                  "pm.collectionVariables.set('internal_external_user_id_conflict', `internal_conflict_${Date.now()}`);",
+                  "pm.collectionVariables.set('internal_idem', `internal-${pm.variables.replaceIn('{{$guid}}')}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('userId matches', function () { pm.expect(j.userId).to.eql(pm.collectionVariables.get('internal_user_id')); });",
+                  "pm.test('address is wallet', function () { pm.expect(j.address).to.match(/^0x[a-fA-F0-9]{40}$/); });",
+                  "pm.collectionVariables.set('internal_address', j.address);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Service-Token",
+                "value": "{{service_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{internal_idem}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{internal_user_id}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{internal_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{rwa_base_url}}/internal/wallets/provision",
+            "description": "무엇을 테스트하나요?\n- 내부 서비스 토큰 보호 API(/internal/wallets/provision)가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 userId가 요청 userId와 동일\n- address가 0x + 40자리 지갑 형식"
+          },
+          "description": "무엇을 테스트하나요?\n- 내부 서비스 토큰 보호 API(/internal/wallets/provision)가 정상 동작하는지 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 userId가 요청 userId와 동일\n- address가 0x + 40자리 지갑 형식"
+        },
+        {
+          "name": "02 Internal provision replay",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('same address replayed', function () { pm.expect(j.address).to.eql(pm.collectionVariables.get('internal_address')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Service-Token",
+                "value": "{{service_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{internal_idem}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{internal_user_id}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{internal_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{rwa_base_url}}/internal/wallets/provision",
+            "description": "무엇을 테스트하나요?\n- 내부 프로비저닝 API에서 동일 Idempotency-Key + 동일 payload 재호출 시 replay되는지 확인합니다.\n통과 기준\n- HTTP 200\n- address가 1차 호출과 동일"
+          },
+          "description": "무엇을 테스트하나요?\n- 내부 프로비저닝 API에서 동일 Idempotency-Key + 동일 payload 재호출 시 replay되는지 확인합니다.\n통과 기준\n- HTTP 200\n- address가 1차 호출과 동일"
+        },
+        {
+          "name": "03 Internal provision conflict",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Service-Token",
+                "value": "{{service_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{internal_idem}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{internal_user_id}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{internal_external_user_id_conflict}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{rwa_base_url}}/internal/wallets/provision",
+            "description": "무엇을 테스트하나요?\n- 내부 프로비저닝 API에서 동일 Idempotency-Key + 다른 payload 충돌 처리를 확인합니다.\n통과 기준\n- HTTP 409 Conflict"
+          },
+          "description": "무엇을 테스트하나요?\n- 내부 프로비저닝 API에서 동일 Idempotency-Key + 다른 payload 충돌 처리를 확인합니다.\n통과 기준\n- HTTP 409 Conflict"
+        },
+        {
+          "name": "04 Idempotency status (internal provision)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Service-Token",
+                "value": "{{service_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{rwa_base_url}}/idempotency/status?endpoint=POST%20/internal/wallets/provision&key={{internal_idem}}",
+              "host": [
+                "{{rwa_base_url}}"
+              ],
+              "path": [
+                "idempotency",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "endpoint",
+                  "value": "POST /internal/wallets/provision"
+                },
+                {
+                  "key": "key",
+                  "value": "{{internal_idem}}"
+                }
+              ]
+            },
+            "description": "무엇을 테스트하나요?\n- 권한 토큰으로 idempotency 상태 조회 API를 호출해 기록 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 status='COMPLETED'"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('idempotency record completed', function () { pm.expect(j.status).to.eql('COMPLETED'); });"
+                ]
+              }
+            }
+          ],
+          "description": "무엇을 테스트하나요?\n- 권한 토큰으로 idempotency 상태 조회 API를 호출해 기록 상태를 확인합니다.\n통과 기준\n- HTTP 200\n- 응답 status='COMPLETED'"
+        }
+      ]
+    }
+  ]
+}

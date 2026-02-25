@@ -22,6 +22,9 @@ spec:
         - name: http
           containerPort: 8080
           protocol: TCP
+        env:
+        - name: SPRING_APPLICATION_NAME
+          value: __APP_NAME__
         envFrom:
         - configMapRef:
             name: __CONFIGMAP_NAME__

@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cryptoorder-server-monitor
+  namespace: cryptoorder        # 1. 대상 네임스페이스 변경
+spec:
+  selector:
+    matchLabels:
+      app: cryptoorder-server   # 2. 타겟 Pod의 라벨 변경
+  podMetricsEndpoints:
+  - path: /actuator/prometheus
+    port: http
+    interval: 10s
+    scrapeTimeout: 8s

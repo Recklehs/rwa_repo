@@ -1,0 +1,960 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "content": "* **읽는 순서(장애/성능저하 진단 루틴)**\\n\\n  1. **p95/p99 Latency** 급등 여부 확인\\n  2. **5xx / Timeout** 증가 여부 확인\\n  3. **Saturation**(CPU/GC/Tomcat threads/Hikari pending) 중 어디가 먼저 포화인지 확인\\n  4. **K8s throttling / OOM / restarts** 확인 (쿠버네티스 사용 시)\\n\\n* **기본 경계값(예시, 팀 SLO에 맞게 조정)**\\n\\n  * p95 > 300ms 또는 p99 > 800ms: 병목 의심\\n  * 5xx ratio > 0.1%: 즉시 원인 추적\\n  * Hikari pending > 0 지속: DB 커넥션 포화\\n  * Tomcat busy ~ max 근접 지속: 스레드 포화\\n  * GC pause p99 스파이크: 메모리/GC 튜닝 필요\\n\\n* **주의**\\n\\n  * 지표가 \"없다\"면 Prometheus scrape 설정/라벨/네임이 다른 것일 수 있음 → `/actuator/prometheus`에서 실제 metric name 확인",
+        "mode": "markdown"
+      },
+      "title": "Load Test Runbook (How to read this dashboard)",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 애플리케이션이 실제로 처리한 초당 요청 수(RPS).\\n* **왜 필요**: 부하 툴이 목표 RPS를 제대로 넣는지, 서버가 처리량을 유지하는지 검증.\\n* **해석**: RPS가 목표보다 낮으면 (1) 부하 발생기 한계 (2) LB/Ingress 드랍 (3) 서버 포화로 처리량 감소 가능.\\n* **다음 확인**: p95/p99, 5xx, Tomcat busy, CPU/GC, Hikari pending.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_requests_seconds_count{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[1m]))",
+          "legendFormat": "overall",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "RPS (Overall)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 최근 5분 기준 5xx 에러 비율.\\n* **왜 필요**: 성능 저하가 \"느려짐\"보다 먼저 \"실패\"로 나타나는 경우가 많고, 재시도가 붙으면 부하가 폭증.\\n* **해석**: 0.1% 이상 상승 시 원인 추적 권장(서비스 SLO에 맞게 조정).\\n* **다음 확인**: Timeout/Exception 유형, Hikari pending, 외부 API 지연, 스레드/CPU/GC.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_requests_seconds_count{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[5m]))",
+          "legendFormat": "overall",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Error Ratio (5xx %)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 전체 요청의 95퍼센타일 응답시간(p95).\\n* **왜 필요**: 평균보다 \"꼬리 지연\"이 사용자 체감/타임아웃/재시도에 훨씬 중요.\\n* **해석**: p95가 오르면 먼저 Saturation(스레드/DB커넥션/GC/CPU)을 의심.\\n* **다음 확인**: p99, Tomcat busy, Hikari pending, GC pause, CPU throttling(K8s).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[5m])))",
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latency p95 (Overall)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 전체 요청의 99퍼센타일 응답시간(p99).\\n* **왜 필요**: tail latency는 장애/포화의 가장 민감한 선행지표.\\n* **해석**: p99 스파이크가 잦으면 GC/락/DB대기/외부API 지연 같은 \"간헐적 병목\" 가능성.\\n* **다음 확인**: GC pause, thread blocked, DB acquire 대기(Hikari pending), 외부 API 패널.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[5m])))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latency p99 (Overall)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 엔드포인트(uri)별 요청량 상위 Top10.\\n* **왜 필요**: 어떤 API가 부하를 주도하는지 식별(핫 엔드포인트).\\n* **해석**: 특정 uri가 몰리면 해당 구간의 DB쿼리/락/캐시/외부호출 최적화 우선.\\n* **주의**: uri 라벨이 동적(/users/123)면 시계열 폭발 위험 → 템플릿 uri로 정규화 필요.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "topk(10, sum by (uri) (rate(http_server_requests_seconds_count{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[1m])))",
+          "legendFormat": "{{uri}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "RPS by URI (Top N)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 엔드포인트별 p95 지연 상위 Top10.\\n* **왜 필요**: \"느린 API\"가 전체 p95를 끌어올리는지 바로 확인.\\n* **해석**: Top에 뜨는 uri는 DB/외부호출/락/스레드 대기 원인을 우선 조사.\\n* **다음 확인**: 해당 uri의 5xx, DB 패널, 외부 API 패널.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (uri, le) (rate(http_server_requests_seconds_bucket{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\"}[5m]))))",
+          "legendFormat": "{{uri}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latency p95 by URI (Top N)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 엔드포인트별 5xx 발생량 Top10.\\n* **왜 필요**: 장애가 특정 API에 집중되는지 빠르게 찾기.\\n* **해석**: 5xx가 급증한 uri는 타임아웃/DB풀 포화/외부 API 실패 가능성 큼.\\n* **다음 확인**: Hikari pending, Tomcat busy, 외부 API 지연/에러.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "topk(10, sum by (uri) (rate(http_server_requests_seconds_count{application=~\"$app\",instance=~\"$instance\",uri=~\"$uri\",method=~\"$method\",status=~\"5..\"}[5m])))",
+          "legendFormat": "{{uri}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "5xx count by URI",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 애플리케이션 프로세스 CPU 사용률.\\n* **왜 필요**: CPU 포화는 지연 급등의 대표 원인(특히 암호화/직렬화/JSON/압축/루프).\\n* **해석**: CPU가 높고 p99도 높으면 CPU-bound 가능성. CPU는 낮은데 지연이 높으면 IO/DB/락/스레드 대기 의심.\\n* **다음 확인**: Tomcat busy, Hikari pending, GC pause, 외부 API 지연.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "avg(process_cpu_usage{application=~\"$app\",instance=~\"$instance\"})",
+          "legendFormat": "avg cpu",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Process CPU Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: JVM 힙 사용량.\\n* **왜 필요**: 힙 압박은 GC 증가 → tail latency 상승으로 직결.\\n* **해석**: 힙이 톱니처럼 급락(Full GC)하고 p99 스파이크가 동반되면 GC 영향 가능.\\n* **다음 확인**: GC pause 패널, allocation rate(있으면), OOM/Restart(K8s).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(jvm_memory_used_bytes{application=~\"$app\",instance=~\"$instance\",area=\"heap\"})",
+          "legendFormat": "heap used",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Heap Used (bytes)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: GC로 인한 stop-the-world pause의 p99.\\n* **왜 필요**: 짧은 pause라도 tail latency를 크게 흔듦(특히 p99).\\n* **해석**: 부하 증가와 함께 GC pause가 커지면 힙/객체 생성/캐시/배열/로깅 등 메모리 튜닝 필요.\\n* **다음 확인**: heap 사용량, GC count 증가, allocation 최적화, JVM 옵션 검토.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(jvm_gc_pause_seconds_bucket{application=~\"$app\",instance=~\"$instance\"}[5m])))",
+          "legendFormat": "gc pause p99",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "GC Pause Time (p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 현재 바쁜(요청 처리 중) 톰캣 워커 스레드 수.\\n* **왜 필요**: 스레드풀이 포화되면 큐 대기 → p95/p99 폭증.\\n* **해석**: busy가 max에 붙어 있으면 스레드 포화(대기/블로킹) 가능성 큼.\\n* **다음 확인**: max threads, 요청 대기(있으면), DB/외부 호출 지연, 락 경합.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(tomcat_threads_busy_threads{application=~\"$app\",instance=~\"$instance\"})",
+          "legendFormat": "tomcat busy",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Tomcat Busy Threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 사용 중(active) DB 커넥션 수.\\n* **왜 필요**: DB가 병목이면 active가 max 근처에서 유지되며 지연/타임아웃이 증가.\\n* **다음 확인**: pending, max, DB 서버 CPU/IO(가능하면 DB 모니터링도 함께).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(hikaricp_connections_active{application=~\"$app\",instance=~\"$instance\"})",
+          "legendFormat": "hikari active",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Hikari Active Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: DB 커넥션을 얻기 위해 대기 중인 스레드 수.\\n* **왜 필요**: pending>0은 곧바로 \"DB 커넥션 부족 → 응답지연\"을 의미하는 경우가 많음(가장 직관적인 병목 신호).\\n* **해석**: pending이 지속되면 (1) 풀 사이즈 부족 (2) 쿼리 느림/락 (3) 트랜잭션이 길게 잡힘 가능.\\n* **다음 확인**: 슬로우 쿼리/인덱스, 트랜잭션 범위, 풀 max 조정, DB 자원.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(hikaricp_connections_pending{application=~\"$app\",instance=~\"$instance\"})",
+          "legendFormat": "hikari pending",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Hikari Pending Threads (waiting for connection)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: Hikari 최대 커넥션 설정.\\n* **왜 필요**: active/pending을 해석하려면 max 기준이 필요.\\n* **주의**: max를 올리면 DB가 더 버텨야 함 → DB 자원/쿼리 최적화와 같이 결정.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 40
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "max(hikaricp_connections_max{application=~\"$app\",instance=~\"$instance\"})",
+          "legendFormat": "hikari max",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Hikari Max Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: CPU가 limit에 걸려 강제로 throttling된 시간.\\n* **왜 필요**: CPU 사용률이 낮아 보여도 throttling 때문에 지연이 급증할 수 있음.\\n* **해석**: throttling이 증가하면 CPU limit 상향 또는 요청/리소스 튜닝 필요.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 40
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(container_cpu_cfs_throttled_seconds_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m])",
+          "legendFormat": "{{namespace}}/{{pod}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Throttling (Container)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "* **의미**: 최근 구간 재시작 횟수.\\n* **왜 필요**: 부하 중 OOM/Crash는 성능 문제가 아니라 안정성 문제로 즉시 대응 필요.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"$pod\"}[30m])",
+          "legendFormat": "{{namespace}}/{{pod}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Pod Restarts / OOMKilled",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": null,
+  "schemaVersion": 39,
+  "tags": [
+    "rwa",
+    "cryptoorder",
+    "prometheus",
+    "load-test",
+    "v2"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(process_uptime_seconds, application)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Application",
+        "multi": false,
+        "name": "app",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(process_uptime_seconds, application)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(process_uptime_seconds{application=~\"$app\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": false,
+        "name": "instance",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(process_uptime_seconds{application=~\"$app\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(http_server_requests_seconds_count{application=~\"$app\"}, uri)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "URI",
+        "multi": false,
+        "name": "uri",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(http_server_requests_seconds_count{application=~\"$app\"}, uri)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(http_server_requests_seconds_count{application=~\"$app\"}, method)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Method",
+        "multi": false,
+        "name": "method",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(http_server_requests_seconds_count{application=~\"$app\"}, method)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(kube_pod_container_status_restarts_total, namespace)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "K8s Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kube_pod_container_status_restarts_total, namespace)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(container_cpu_cfs_throttled_seconds_total{namespace=~\"$namespace\"}, pod)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "K8s Pod",
+        "multi": false,
+        "name": "pod",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(container_cpu_cfs_throttled_seconds_total{namespace=~\"$namespace\"}, pod)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "",
+  "title": "RWA + CryptoOrder Load Test v2",
+  "uid": "rwa-cryptoorder-loadtest-v2",
+  "version": 1,
+  "weekStart": ""
+}

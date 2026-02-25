@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: rwa-server-monitor
+  namespace: rwa                # 1. 대상 네임스페이스
+spec:
+  selector:
+    matchLabels:
+      app: rwa-server           # 2. 타겟 Pod의 라벨
+  podMetricsEndpoints:
+  - path: /actuator/prometheus
+    port: http                  # (Deployment에 선언된 컨테이너 포트 이름이 http여야 함)
+    interval: 10s
+    scrapeTimeout: 8s

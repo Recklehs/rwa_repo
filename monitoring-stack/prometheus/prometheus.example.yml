@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 10s
+  scrape_timeout: 8s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: rwa-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - <rwa-server-lb-ip>:80
+        labels:
+          service: rwa-server
+          environment: aks
+
+  - job_name: cryptoorder-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - <cryptoorder-server-lb-ip>:80
+        labels:
+          service: cryptoorder-server
+          environment: aks

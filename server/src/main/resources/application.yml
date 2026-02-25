@@ -32,6 +32,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 management:
   endpoints:
@@ -39,16 +42,23 @@ management:
       exposure:
         include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,prometheus}
   endpoint:
+    prometheus:
+      enabled: true
     health:
       show-details: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:never}
       probes:
         enabled: ${MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED:true}
   metrics:
+    tags:
+      application: ${spring.application.name}
+      env: ${ENV:local}
     distribution:
       percentiles-histogram:
         "[http.server.requests]": true
-      percentiles:
-        "[http.server.requests]": 0.95,0.99
+        "[jvm.gc.pause]": true
+      slo:
+        "[http.server.requests]": 50ms,100ms,200ms,300ms,500ms,1s,2s
+        "[jvm.gc.pause]": 10ms,20ms,50ms,100ms,200ms,500ms,1s,2s
 
 rwa:
   shared-dir-path: ${SHARED_DIR_PATH:../shared}

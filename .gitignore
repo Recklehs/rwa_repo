@@ -88,6 +88,8 @@ pg-data/
 
 # --- Local docker overrides ---
 docker-compose.override.yml
+monitoring-stack/prometheus/prometheus.yml
+server/scripts/postman/rwa-cryptoorder-k8s-deploy-check.postman_environment.json
 
 # --- Local application configs (contains secrets in many setups) ---
 **/application-local.yml
