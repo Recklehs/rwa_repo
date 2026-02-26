@@ -7,16 +7,21 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/rwa}
     username: ${DB_USER:rwa}
     password: ${DB_PASSWORD:rwa_password}
+    hikari:
+      schema: ${DB_SCHEMA:PUBLIC}
   jpa:
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
         format_sql: true
+        default_schema: ${DB_SCHEMA:PUBLIC}
     open-in-view: false
   flyway:
     enabled: true
     locations: classpath:db/migration
+    default-schema: ${DB_SCHEMA:PUBLIC}
+    schemas: ${DB_SCHEMA:PUBLIC}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:

@@ -245,6 +245,7 @@ class WalletServiceTest {
 
         when(userExternalLinkRepository.findByProviderAndExternalUserId("MEMBER", "ext-conflict"))
             .thenReturn(Optional.of(existingLink));
+        when(userRepository.existsById(requestedUserId)).thenReturn(true);
 
         assertThatThrownBy(() -> walletService.provisionWallet(requestedUserId, "MEMBER", "ext-conflict"))
             .isInstanceOfSatisfying(ApiException.class, ex -> {
@@ -252,6 +253,45 @@ class WalletServiceTest {
                 assertThat(ex.getMessage()).contains("externalUserId");
             });
 
+        verify(walletRepository, never()).save(any(WalletEntity.class));
+        verify(gasManagerService, never()).ensureInitialGasGranted(any());
+    }
+
+    @Test
+    @DisplayName("provisionWallet은 external link 삽입 경합에서 같은 userId 매핑이면 성공한다")
+    void provisionWalletShouldSucceedWhenExternalLinkInsertRacesForSameUser() {
+        UUID userId = UUID.fromString("97d9065f-17ed-4abf-9527-43789e40f93c");
+        String provider = "MEMBER";
+        String externalUserId = "ext-race";
+
+        UserExternalLinkEntity linked = new UserExternalLinkEntity();
+        linked.setProvider(provider);
+        linked.setExternalUserId(externalUserId);
+        linked.setUserId(userId);
+
+        WalletEntity wallet = new WalletEntity();
+        wallet.setUserId(userId);
+        wallet.setAddress("0x1111111111111111111111111111111111111111");
+
+        UserEntity user = new UserEntity();
+        user.setUserId(userId);
+        user.setComplianceStatus(ComplianceStatus.PENDING);
+
+        when(jdbcTemplate.update(any(String.class), any(MapSqlParameterSource.class)))
+            .thenReturn(0);
+        when(userExternalLinkRepository.findByProviderAndExternalUserId(provider, externalUserId))
+            .thenReturn(Optional.empty(), Optional.of(linked));
+        when(userExternalLinkRepository.findByProviderAndUserId(provider, userId))
+            .thenReturn(Optional.empty());
+        when(userRepository.existsById(userId)).thenReturn(true);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(walletRepository.findById(userId)).thenReturn(Optional.of(wallet));
+
+        WalletService.WalletProvisionResult result = walletService.provisionWallet(userId, provider, externalUserId);
+
+        assertThat(result.userId()).isEqualTo(userId);
+        assertThat(result.address()).isEqualTo(wallet.getAddress());
+        assertThat(result.complianceStatus()).isEqualTo(ComplianceStatus.PENDING);
         verify(walletRepository, never()).save(any(WalletEntity.class));
         verify(gasManagerService, never()).ensureInitialGasGranted(any());
     }

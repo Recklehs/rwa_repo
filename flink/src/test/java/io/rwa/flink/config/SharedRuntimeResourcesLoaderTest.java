@@ -26,6 +26,7 @@ class SharedRuntimeResourcesLoaderTest {
             "jdbc:postgresql://localhost:5432/rwa",
             "rwa",
             "rwa_password",
+            "public",
             10000L,
             1,
             1,

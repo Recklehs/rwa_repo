@@ -19,6 +19,10 @@ spec:
       labels:
         app: __APP_NAME__
     spec:
+      securityContext:
+        runAsUser: 9999
+        runAsGroup: 9999
+        fsGroup: 9999
       volumes:
       - name: flink-state
         persistentVolumeClaim:

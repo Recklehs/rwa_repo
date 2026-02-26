@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -100,8 +101,13 @@ public class IdempotencyService {
             IdempotencyRecordStatus.valueOf(rs.getString("status")),
             rs.getObject("response_status") == null ? null : rs.getInt("response_status"),
             body,
-            rs.getObject("created_at", Instant.class),
-            rs.getObject("updated_at", Instant.class)
+            readInstant(rs, "created_at"),
+            readInstant(rs, "updated_at")
         );
+    }
+
+    private Instant readInstant(ResultSet rs, String columnName) throws SQLException {
+        Timestamp timestamp = rs.getTimestamp(columnName);
+        return timestamp == null ? null : timestamp.toInstant();
     }
 }

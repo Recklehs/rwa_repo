@@ -241,7 +241,12 @@ public class OutboxRepository {
             rs.getString("topic"),
             rs.getString("partition_key"),
             payload,
-            rs.getObject("created_at", java.time.Instant.class)
+            readInstant(rs, "created_at")
         );
+    }
+
+    private java.time.Instant readInstant(ResultSet rs, String columnName) throws SQLException {
+        Timestamp timestamp = rs.getTimestamp(columnName);
+        return timestamp == null ? null : timestamp.toInstant();
     }
 }

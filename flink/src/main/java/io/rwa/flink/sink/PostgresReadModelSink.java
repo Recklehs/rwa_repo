@@ -88,6 +88,7 @@ public class PostgresReadModelSink extends RichSinkFunction<DecodedChainEvent> {
     private final String dbUrl;
     private final String dbUser;
     private final String dbPassword;
+    private final String dbSchema;
     private final BigInteger shareScale;
     private final FilterMode filterMode;
 
@@ -109,12 +110,14 @@ public class PostgresReadModelSink extends RichSinkFunction<DecodedChainEvent> {
         String dbUrl,
         String dbUser,
         String dbPassword,
+        String dbSchema,
         BigInteger shareScale,
         FilterMode filterMode
     ) {
         this.dbUrl = dbUrl;
         this.dbUser = dbUser;
         this.dbPassword = dbPassword;
+        this.dbSchema = dbSchema == null || dbSchema.isBlank() ? "public" : dbSchema.trim();
         this.shareScale = shareScale;
         this.filterMode = filterMode;
     }
@@ -128,7 +131,7 @@ public class PostgresReadModelSink extends RichSinkFunction<DecodedChainEvent> {
         this.dataSource = ds;
 
         ensureConnection();
-        log.info("Postgres sink opened with connection reuse (filterMode={})", filterMode);
+        log.info("Postgres sink opened with connection reuse (filterMode={}, schema={})", filterMode, dbSchema);
     }
 
     @Override
@@ -191,6 +194,7 @@ public class PostgresReadModelSink extends RichSinkFunction<DecodedChainEvent> {
         resetConnection();
 
         connection = dataSource.getConnection();
+        connection.setSchema(dbSchema);
         connection.setAutoCommit(false);
 
         insertProcessedEventStatement = connection.prepareStatement(INSERT_PROCESSED_EVENT_SQL);

@@ -327,18 +327,23 @@ public class WalletService {
     }
 
     private void ensureUserExists(UUID userId, Instant now) {
-        jdbcTemplate.update(
-            """
-                INSERT INTO users (user_id, created_at, compliance_status, compliance_updated_at)
-                VALUES (:userId, :createdAt, :status, :updatedAt)
-                ON CONFLICT (user_id) DO NOTHING
-                """,
-            new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("createdAt", Timestamp.from(now), Types.TIMESTAMP)
-                .addValue("status", ComplianceStatus.PENDING.name())
-                .addValue("updatedAt", Timestamp.from(now), Types.TIMESTAMP)
-        );
+        if (userRepository.existsById(userId)) {
+            return;
+        }
+
+        UserEntity user = new UserEntity();
+        user.setUserId(userId);
+        user.setCreatedAt(now);
+        user.setComplianceStatus(ComplianceStatus.PENDING);
+        user.setComplianceUpdatedAt(now);
+
+        try {
+            userRepository.save(user);
+        } catch (DataIntegrityViolationException duplicate) {
+            if (!userRepository.existsById(userId)) {
+                throw duplicate;
+            }
+        }
     }
 
     private WalletCreationResult ensureWalletForProvision(UUID userId, Instant now) {
@@ -386,14 +391,47 @@ public class WalletService {
             throw new ApiException(HttpStatus.CONFLICT, "provider already linked with different externalUserId");
         }
 
-        try {
-            saveExternalLink(userId, provider, externalUserId, now);
-        } catch (DataIntegrityViolationException e) {
-            Optional<UserExternalLinkEntity> after = userExternalLinkRepository.findByProviderAndExternalUserId(provider, externalUserId);
-            if (after.isPresent() && after.get().getUserId().equals(userId)) {
+        if (insertExternalLinkIgnoreConflicts(userId, provider, externalUserId, now)) {
+            return;
+        }
+
+        Optional<UserExternalLinkEntity> afterByExternalUserId = userExternalLinkRepository.findByProviderAndExternalUserId(provider, externalUserId);
+        if (afterByExternalUserId.isPresent()) {
+            if (afterByExternalUserId.get().getUserId().equals(userId)) {
                 return;
             }
-            throw new ApiException(HttpStatus.CONFLICT, "externalUserId link conflict");
+            throw new ApiException(HttpStatus.CONFLICT, "externalUserId already linked to another user");
+        }
+
+        Optional<UserExternalLinkEntity> afterByUser = userExternalLinkRepository.findByProviderAndUserId(provider, userId);
+        if (afterByUser.isPresent() && !externalUserId.equals(afterByUser.get().getExternalUserId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "provider already linked with different externalUserId");
+        }
+
+        throw new ApiException(HttpStatus.CONFLICT, "externalUserId link conflict");
+    }
+
+    private boolean insertExternalLinkIgnoreConflicts(UUID userId, String provider, String externalUserId, Instant now) {
+        try {
+            int updated = jdbcTemplate.update(
+                """
+                    INSERT INTO user_external_links (provider, external_user_id, user_id, created_at, updated_at)
+                    VALUES (:provider, :externalUserId, :userId, :createdAt, :updatedAt)
+                    ON CONFLICT DO NOTHING
+                    """,
+                new MapSqlParameterSource()
+                    .addValue("provider", provider)
+                    .addValue("externalUserId", externalUserId)
+                    .addValue("userId", userId)
+                    .addValue("createdAt", Timestamp.from(now), Types.TIMESTAMP)
+                    .addValue("updatedAt", Timestamp.from(now), Types.TIMESTAMP)
+            );
+            return updated == 1;
+        } catch (BadSqlGrammarException e) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "user_external_links table schema mismatch. run Flyway migrations (" + REQUIRED_FLYWAY_RANGE + "). cause=" + rootMessage(e)
+            );
         }
     }
 

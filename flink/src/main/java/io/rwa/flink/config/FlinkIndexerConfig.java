@@ -17,6 +17,7 @@ public record FlinkIndexerConfig(
     String dbUrl,
     String dbUser,
     String dbPassword,
+    String dbSchema,
     long checkpointIntervalMs,
     int parallelism,
     int sinkParallelism,
@@ -38,6 +39,7 @@ public record FlinkIndexerConfig(
         String dbUrl = envOrDefault(env, "DB_URL", "jdbc:postgresql://localhost:5432/rwa");
         String dbUser = envOrDefault(env, "DB_USER", "rwa");
         String dbPassword = envOrDefault(env, "DB_PASSWORD", "rwa_password");
+        String dbSchema = envOrDefault(env, "DB_SCHEMA", "public");
 
         long checkpointIntervalMs = parseLong(
             envOrDefault(env, "FLINK_CHECKPOINT_INTERVAL_MS", "10000"),
@@ -59,6 +61,9 @@ public record FlinkIndexerConfig(
         if (sinkParallelism <= 0) {
             throw new IllegalArgumentException("SINK_PARALLELISM must be > 0");
         }
+        if (dbSchema.isBlank()) {
+            throw new IllegalArgumentException("DB_SCHEMA must not be blank");
+        }
 
         return new FlinkIndexerConfig(
             sharedDirPath,
@@ -73,6 +78,7 @@ public record FlinkIndexerConfig(
             dbUrl,
             dbUser,
             dbPassword,
+            dbSchema,
             checkpointIntervalMs,
             parallelism,
             sinkParallelism,

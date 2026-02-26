@@ -75,6 +75,7 @@ public class FlinkIndexerApplication {
                     config.dbUrl(),
                     config.dbUser(),
                     config.dbPassword(),
+                    config.dbSchema(),
                     shared.shareScale(),
                     config.filterMode()
                 )

@@ -110,3 +110,7 @@ server/scripts/e2e/results/*
 # Wallet outputs (never commit wallet artifacts)
 shared/wallets/**
 !shared/wallets/.gitkeep
+
+# Generated output artifacts
+output/frontend-next-azure-template/
+output/frontend-server-integration-kit/
