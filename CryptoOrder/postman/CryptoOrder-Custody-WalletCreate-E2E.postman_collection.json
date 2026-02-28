@@ -1,0 +1,271 @@
+{
+  "info": {
+    "_postman_id": "a2416d5f-5c28-4b8e-b88f-f3176a2fc7fb",
+    "name": "CryptoOrder-Custody wallet-create E2E (Local)",
+    "description": "한국어 테스트 시나리오\n\n이 컬렉션은 아래 흐름을 검증합니다.\n1) CryptoOrder 회원가입 호출\n2) CryptoOrder가 wallet-create 토픽으로 이벤트 발행\n3) Custody consumer(custody-consumer-group)가 이벤트를 소비해서 지갑 프로비저닝\n4) Custody /me 를 폴링하여 지갑 주소가 준비됐는지 확인\n\n사전 조건\n- CryptoOrder 서버 실행 (기본: http://localhost:8000)\n- Custody 서버 실행 (기본: http://localhost:8080)\n- Kafka(Event Hubs 포함) 연결 정상\n- CryptoOrder: WALLET_CREATE_INTEGRATION_ENABLED=true\n- Topic: wallet-create, Consumer Group: custody-consumer-group\n\n실행 방법\n- Runner에서 전체 컬렉션 실행\n- 2번 요청은 지갑 준비 전까지 자동으로 자기 자신을 반복 호출합니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const runId = pm.environment.get('run_id') || String(Date.now());",
+          "pm.environment.set('run_id', runId);",
+          "",
+          "if (!pm.environment.get('idem_signup')) pm.environment.set('idem_signup', `signup-${runId}`);",
+          "if (!pm.environment.get('idem_login')) pm.environment.set('idem_login', `login-${runId}`);",
+          "if (!pm.environment.get('idem_refresh')) pm.environment.set('idem_refresh', `refresh-${runId}`);",
+          "",
+          "if (!pm.environment.get('signup_login_id')) pm.environment.set('signup_login_id', `itg_${runId}`);",
+          "if (!pm.environment.get('signup_external_user_id')) pm.environment.set('signup_external_user_id', `ext_${runId}`);",
+          "",
+          "if (!pm.environment.get('provider')) pm.environment.set('provider', 'MEMBER');",
+          "if (!pm.environment.get('signup_name')) pm.environment.set('signup_name', 'Integration Tester');",
+          "if (!pm.environment.get('signup_phone')) pm.environment.set('signup_phone', '010-5718-1266');",
+          "if (!pm.environment.get('signup_birth_date')) pm.environment.set('signup_birth_date', '1995-01-01');",
+          "if (!pm.environment.get('signup_password')) pm.environment.set('signup_password', 'Passw0rd!123');",
+          "if (!pm.environment.get('poll_max_attempts')) pm.environment.set('poll_max_attempts', '20');",
+          "if (!pm.environment.get('poll_attempt')) pm.environment.set('poll_attempt', '0');"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1) 회원가입 (CryptoOrder)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idem_signup}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{cryptoorder_base_url}}/auth/signup",
+          "host": [
+            "{{cryptoorder_base_url}}"
+          ],
+          "path": [
+            "auth",
+            "signup"
+          ]
+        },
+        "description": "무엇을 테스트하나요?\n- CryptoOrder 회원가입이 정상 처리되는지 확인합니다.\n- 응답으로 받은 access token을 이후 Custody API 호출에 사용합니다.\n- 이 호출이 성공하면 wallet-create 이벤트가 발행될 준비가 된 상태입니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('회원가입 응답은 200이어야 한다', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const json = pm.response.json();",
+              "pm.test('accessToken/userId가 존재해야 한다', function () {",
+              "  pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.userId).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "pm.environment.set('crypto_access_token', json.accessToken);",
+              "pm.environment.set('crypto_user_id', json.userId);",
+              "pm.environment.set('poll_attempt', '0');",
+              "",
+              "postman.setNextRequest('2) 지갑 발급 반영 확인 (/me 폴링)');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) 지갑 발급 반영 확인 (/me 폴링)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{crypto_access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{custody_base_url}}/me",
+          "host": [
+            "{{custody_base_url}}"
+          ],
+          "path": [
+            "me"
+          ]
+        },
+        "description": "무엇을 테스트하나요?\n- wallet-create 이벤트가 Custody에서 소비되어 지갑이 생성됐는지 확인합니다.\n- 아직 처리 전이면 WALLET_NOT_PROVISIONED(404)가 나올 수 있어 자동 폴링합니다.\n- 처리 완료 시 200과 address를 받아 다음 단계로 진행합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const code = pm.response.code;",
+              "let body = {};",
+              "try { body = pm.response.json(); } catch (e) { body = {}; }",
+              "",
+              "if (code === 200) {",
+              "  pm.test('Custody /me 호출이 성공해야 한다', function () {",
+              "    pm.expect(code).to.eql(200);",
+              "  });",
+              "  pm.test('userId/address가 응답에 있어야 한다', function () {",
+              "    pm.expect(body.userId).to.be.a('string').and.not.empty;",
+              "    pm.expect(body.address).to.be.a('string').and.not.empty;",
+              "  });",
+              "",
+              "  pm.environment.set('custody_wallet_address', body.address);",
+              "  pm.environment.set('custody_compliance_status', body.complianceStatus || '');",
+              "  postman.setNextRequest('3) 지갑 상세 확인 (/me/wallet)');",
+              "  return;",
+              "}",
+              "",
+              "if (code === 404 && body.message === 'WALLET_NOT_PROVISIONED') {",
+              "  const current = Number(pm.environment.get('poll_attempt') || '0') + 1;",
+              "  const max = Number(pm.environment.get('poll_max_attempts') || '20');",
+              "  pm.environment.set('poll_attempt', String(current));",
+              "",
+              "  pm.test('지갑이 아직 미생성 상태일 수 있다(폴링 재시도)', function () {",
+              "    pm.expect(current).to.be.at.most(max);",
+              "  });",
+              "",
+              "  if (current < max) {",
+              "    postman.setNextRequest('2) 지갑 발급 반영 확인 (/me 폴링)');",
+              "  } else {",
+              "    pm.test('폴링 최대 횟수 내에 지갑이 생성되어야 한다', function () {",
+              "      pm.expect.fail(`지갑 생성 확인 실패: ${max}회 폴링 후에도 WALLET_NOT_PROVISIONED`);",
+              "    });",
+              "    postman.setNextRequest(null);",
+              "  }",
+              "  return;",
+              "}",
+              "",
+              "pm.test('예상하지 못한 상태코드가 나오면 실패', function () {",
+              "  pm.expect.fail(`Unexpected status=${code}, body=${pm.response.text()}`);",
+              "});",
+              "postman.setNextRequest(null);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) 지갑 상세 확인 (/me/wallet)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{crypto_access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{custody_base_url}}/me/wallet",
+          "host": [
+            "{{custody_base_url}}"
+          ],
+          "path": [
+            "me",
+            "wallet"
+          ]
+        },
+        "description": "무엇을 테스트하나요?\n- 지갑 상세 API가 정상적으로 열리는지 확인합니다.\n- 앞 단계에서 획득한 지갑 주소와 일치하는지 검증합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('/me/wallet 응답은 200이어야 한다', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const json = pm.response.json();",
+              "pm.test('address가 존재해야 한다', function () {",
+              "  pm.expect(json.address).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "const expected = pm.environment.get('custody_wallet_address');",
+              "if (expected) {",
+              "  pm.test('앞서 /me에서 확인한 주소와 같아야 한다', function () {",
+              "    pm.expect(json.address.toLowerCase()).to.eql(expected.toLowerCase());",
+              "  });",
+              "}",
+              "",
+              "postman.setNextRequest(null);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "(선택) 4) 외부 식별자 매핑 조회 (/admin/users/by-external)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Admin-Token",
+            "value": "{{admin_api_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{custody_base_url}}/admin/users/by-external?externalUserId={{signup_external_user_id}}&provider={{provider}}",
+          "host": [
+            "{{custody_base_url}}"
+          ],
+          "path": [
+            "admin",
+            "users",
+            "by-external"
+          ],
+          "query": [
+            {
+              "key": "externalUserId",
+              "value": "{{signup_external_user_id}}"
+            },
+            {
+              "key": "provider",
+              "value": "{{provider}}"
+            }
+          ]
+        },
+        "description": "무엇을 테스트하나요?\n- 관리자 토큰이 있는 경우, provider/externalUserId 매핑이 Custody에 저장되었는지 추가 검증합니다.\n- 운영 점검용 선택 요청입니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('관리자 조회 응답은 200이어야 한다', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const json = pm.response.json();",
+              "pm.test('userId/address가 존재해야 한다', function () {",
+              "  pm.expect(json.userId).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.address).to.be.a('string').and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

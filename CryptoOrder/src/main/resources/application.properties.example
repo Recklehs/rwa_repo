@@ -1,0 +1,66 @@
+spring.application.name=CryptoOrder
+spring.config.import=optional:file:.env[.properties]
+server.port=${SERVER_PORT:8080}
+
+# PostgreSQL (local default)
+# 예) jdbc:postgresql://localhost:5432/cryptoorder
+spring.datasource.url=${DB_URL:jdbc:postgresql://localhost:5432/cryptoorder}
+spring.datasource.driver-class-name=org.postgresql.Driver
+spring.datasource.username=${DB_USERNAME:cryptoorder}
+spring.datasource.password=${DB_PASSWORD:cryptoorder}
+spring.datasource.hikari.schema=${DB_SCHEMA:public}
+
+spring.jpa.hibernate.ddl-auto=${JPA_DDL_AUTO:update}
+spring.jpa.properties.hibernate.show_sql=${HIBERNATE_SHOW_SQL:false}
+spring.jpa.properties.hibernate.format_sql=${HIBERNATE_FORMAT_SQL:false}
+spring.jpa.properties.hibernate.default_schema=${DB_SCHEMA:public}
+
+# Auth server settings (for custody compatibility)
+# AUTH_MODE: JWKS|HMAC
+auth.mode=${AUTH_MODE:JWKS}
+auth.jwt-issuer=${AUTH_JWT_ISSUER:rwa-id-server}
+auth.jwt-audience=${AUTH_JWT_AUDIENCE:rwa-custody}
+auth.access-token-ttl-seconds=${AUTH_ACCESS_TOKEN_TTL_SECONDS:900}
+auth.refresh-token-ttl-seconds=${AUTH_REFRESH_TOKEN_TTL_SECONDS:1209600}
+auth.jwt-key-id=${AUTH_JWT_KEY_ID:member-server-key-1}
+auth.jwt-private-key-base64=${AUTH_JWT_PRIVATE_KEY_BASE64:}
+auth.jwt-private-key-path=${AUTH_JWT_PRIVATE_KEY_PATH:}
+auth.jwt-public-key-base64=${AUTH_JWT_PUBLIC_KEY_BASE64:}
+auth.jwt-public-key-path=${AUTH_JWT_PUBLIC_KEY_PATH:}
+auth.hmac-secret-base64=${AUTH_HMAC_SECRET_BASE64:}
+auth.allow-ephemeral-keys=${AUTH_ALLOW_EPHEMERAL_KEYS:false}
+
+# Custody provisioning integration
+custody.provision.enabled=${CUSTODY_PROVISION_ENABLED:false}
+custody.provision.base-url=${CUSTODY_BASE_URL:}
+custody.provision.path=${CUSTODY_PROVISION_PATH:/internal/wallets/provision}
+custody.provision.service-token=${SERVICE_TOKEN:}
+custody.provision.service-token-header=${SERVICE_TOKEN_HEADER:X-Service-Token}
+custody.provision.connect-timeout-millis=${CUSTODY_CONNECT_TIMEOUT_MILLIS:2000}
+custody.provision.read-timeout-millis=${CUSTODY_READ_TIMEOUT_MILLIS:5000}
+
+# Event-based wallet create integration (recommended)
+integration.wallet-create.enabled=${WALLET_CREATE_INTEGRATION_ENABLED:false}
+integration.wallet-create.topic=${WALLET_CREATE_TOPIC:wallet-create}
+integration.wallet-create.batch-size=${WALLET_CREATE_BATCH_SIZE:100}
+integration.wallet-create.dispatch-interval-ms=${WALLET_CREATE_DISPATCH_INTERVAL_MS:1000}
+integration.wallet-create.retry-backoff-ms=${WALLET_CREATE_RETRY_BACKOFF_MS:5000}
+integration.wallet-create.max-attempts=${WALLET_CREATE_MAX_ATTEMPTS:20}
+
+spring.kafka.bootstrap-servers=${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+spring.kafka.producer.value-serializer=org.apache.kafka.common.serialization.StringSerializer
+spring.kafka.properties.security.protocol=${KAFKA_SECURITY_PROTOCOL:}
+spring.kafka.properties.sasl.mechanism=${KAFKA_SASL_MECHANISM:}
+spring.kafka.properties.sasl.jaas.config=${KAFKA_SASL_JAAS_CONFIG:}
+
+# Idempotency settings
+idempotency.in-progress-ttl-seconds=${IDEMPOTENCY_IN_PROGRESS_TTL_SECONDS:120}
+idempotency.response-encryption-key-base64=${IDEMPOTENCY_RESPONSE_ENCRYPTION_KEY_BASE64:}
+idempotency.allow-ephemeral-encryption-key=${IDEMPOTENCY_ALLOW_EPHEMERAL_ENCRYPTION_KEY:false}
+
+# Actuator + Micrometer (Prometheus)
+management.endpoints.web.exposure.include=health,info,prometheus
+management.endpoint.health.probes.enabled=true
+management.prometheus.metrics.export.enabled=true
+management.metrics.tags.application=${spring.application.name}

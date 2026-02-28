@@ -1,0 +1,444 @@
+{
+  "info": {
+    "_postman_id": "4f5d2fe2-ecf3-4d6d-a2cc-03a2607562a5",
+    "name": "CryptoOrder-Custody Local E2E (8000-8080)",
+    "description": "CryptoOrder(:8000)와 Custody Server(:8080) 로컬 연동 검증용 컬렉션입니다.\n\n시나리오 요약\n1) 두 서버 헬스 체크 및 JWKS 응답 확인\n2) CryptoOrder 회원가입 시 커스터디 지갑 프로비저닝이 실제로 수행되는지 검증\n3) 발급된 액세스 토큰으로 Custody /me 접근이 가능한지 검증\n4) 로그인/리프레시 토큰 플로우 이후에도 동일 사용자/지갑이 유지되는지 검증\n5) 동일 Idempotency-Key 재요청 시 같은 결과를 반환하는지 검증\n\n사전 조건\n- CryptoOrder 실행: http://localhost:8000\n- Custody 실행: http://localhost:8080\n- CryptoOrder .env: CUSTODY_PROVISION_ENABLED=true, CUSTODY_BASE_URL=http://localhost:8080\n- Custody .env: AUTH_JWKS_URL=http://localhost:8000/.well-known/jwks.json",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const shouldInit = !pm.collectionVariables.get('run_id') || pm.info.requestName === '01 Signup (Triggers Custody Provision)';",
+          "if (shouldInit) {",
+          "  const now = Date.now();",
+          "  const guid = pm.variables.replaceIn('{{$guid}}');",
+          "  const rand4 = () => String(Math.floor(Math.random() * 9000) + 1000);",
+          "",
+          "  pm.collectionVariables.set('run_id', String(now));",
+          "  pm.collectionVariables.set('idem_signup', 'signup-' + guid);",
+          "  pm.collectionVariables.set('idem_login', 'login-' + guid);",
+          "  pm.collectionVariables.set('idem_refresh', 'refresh-' + guid);",
+          "",
+          "  pm.collectionVariables.set('signup_name', 'Integration Tester');",
+          "  pm.collectionVariables.set('signup_phone', '010-' + rand4() + '-' + rand4());",
+          "  pm.collectionVariables.set('signup_birth_date', '1995-01-01');",
+          "  pm.collectionVariables.set('signup_login_id', 'itg_' + now);",
+          "  pm.collectionVariables.set('signup_password', 'Passw0rd!123');",
+          "  pm.collectionVariables.set('signup_external_user_id', 'ext_' + guid);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0) Health & JWKS",
+      "item": [
+        {
+          "name": "01 CryptoOrder Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('health is UP', function () {",
+                  "  pm.expect(body.status).to.eql('UP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/actuator/health",
+            "description": "CryptoOrder 서버가 정상 기동(200/UP) 상태인지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Custody Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('health is UP', function () {",
+                  "  pm.expect(body.status).to.eql('UP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{custody_base_url}}/actuator/health",
+            "description": "Custody 서버가 정상 기동(200/UP) 상태인지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "03 CryptoOrder JWKS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('keys is array', function () {",
+                  "  pm.expect(Array.isArray(body.keys)).to.eql(true);",
+                  "});",
+                  "if (pm.environment.get('expect_jwks_mode') === 'true') {",
+                  "  pm.test('keys has at least one entry in JWKS mode', function () {",
+                  "    pm.expect(body.keys.length > 0).to.eql(true);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/.well-known/jwks.json",
+            "description": "Custody가 JWT 서명을 검증할 때 참조하는 JWKS 엔드포인트의 응답 형식(keys 배열)을 확인합니다. expect_jwks_mode=true이면 최소 1개 키가 있어야 합니다."
+          },
+          "response": []
+        }
+      ],
+      "description": "기본 연결성 점검 단계입니다. 서비스 기동 상태와 JWT 검증에 필요한 JWKS 엔드포인트 응답을 먼저 확인합니다."
+    },
+    {
+      "name": "1) Signup -> Custody Provision E2E",
+      "item": [
+        {
+          "name": "01 Signup (Triggers Custody Provision)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('signup response has token + userId', function () {",
+                  "  pm.expect(body.tokenType).to.eql('Bearer');",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.userId).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('crypto_user_id', body.userId);",
+                  "pm.collectionVariables.set('crypto_access_token', body.accessToken);",
+                  "pm.collectionVariables.set('crypto_refresh_token', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup",
+            "description": "CryptoOrder 회원가입을 호출합니다. 이 요청은 내부적으로 Custody /internal/wallets/provision 호출을 트리거해야 합니다. 응답에서 access/refresh token과 userId를 저장합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Custody /me (Verify Provision + JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('userId matches signup userId', function () {",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});",
+                  "pm.test('wallet address exists', function () {",
+                  "  pm.expect(body.address).to.match(/^0x[a-fA-F0-9]{40}$/);",
+                  "});",
+                  "const links = Array.isArray(body.externalLinks) ? body.externalLinks : [];",
+                  "const provider = pm.variables.get('provider');",
+                  "const externalUserId = pm.collectionVariables.get('signup_external_user_id');",
+                  "const found = links.some(l => l.provider === provider && l.externalUserId === externalUserId);",
+                  "pm.test('external link is created in custody', function () {",
+                  "  pm.expect(found).to.eql(true);",
+                  "});",
+                  "pm.collectionVariables.set('custody_wallet_address', body.address);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{crypto_access_token}}"
+              }
+            ],
+            "url": "{{custody_base_url}}/me",
+            "description": "회원가입에서 받은 access token으로 Custody /me를 호출합니다. userId 일치, 지갑 주소 생성, externalLinks(provider+externalUserId) 매핑 생성을 검증합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "03 CryptoOrder Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('login returns token payload', function () {",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});",
+                  "pm.collectionVariables.set('crypto_access_token_login', body.accessToken);",
+                  "pm.collectionVariables.set('crypto_refresh_token_login', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_login}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/login",
+            "description": "같은 계정으로 로그인하여 새 access/refresh token을 발급받는지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Custody /me with Login Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('same userId', function () {",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{crypto_access_token_login}}"
+              }
+            ],
+            "url": "{{custody_base_url}}/me",
+            "description": "로그인으로 받은 access token도 Custody에서 정상 인증되는지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "05 CryptoOrder Refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('refresh returns new access token', function () {",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});",
+                  "pm.collectionVariables.set('crypto_access_token_refresh', body.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_refresh}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{crypto_refresh_token_login}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/refresh",
+            "description": "refresh token으로 access token 재발급이 정상 동작하는지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "06 Custody /me with Refreshed Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('same userId after refresh', function () {",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});",
+                  "pm.test('wallet address is stable', function () {",
+                  "  pm.expect(body.address).to.eql(pm.collectionVariables.get('custody_wallet_address'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{crypto_access_token_refresh}}"
+              }
+            ],
+            "url": "{{custody_base_url}}/me",
+            "description": "재발급된 access token으로 Custody /me 호출 시 동일 userId/지갑 주소가 유지되는지 확인합니다."
+          },
+          "response": []
+        },
+        {
+          "name": "07 Signup Replay (Same Idempotency-Key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('idempotent replay returns same userId', function () {",
+                  "  pm.expect(body.userId).to.eql(pm.collectionVariables.get('crypto_user_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup",
+            "description": "동일한 회원가입 payload + 동일 Idempotency-Key를 재전송하여 멱등성 보장(같은 userId 반환) 여부를 확인합니다."
+          },
+          "response": []
+        }
+      ],
+      "description": "핵심 연동 검증 단계입니다. 회원가입부터 커스터디 지갑 생성, 토큰 재발급, 멱등성까지 한 번에 점검합니다."
+    }
+  ],
+  "variable": [
+    {
+      "key": "provider",
+      "value": "MEMBER"
+    }
+  ]
+}

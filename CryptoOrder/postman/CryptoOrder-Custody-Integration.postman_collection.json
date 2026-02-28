@@ -1,0 +1,390 @@
+{
+  "info": {
+    "_postman_id": "16c10f77-b160-4bde-9442-a8435f5f8ab8",
+    "name": "CryptoOrder-Custody Integration (8000-8080)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const needsInit = !pm.collectionVariables.get('idem_signup') || pm.info.requestName === '01 회원가입(커스터디 연동 트리거)';",
+          "if (needsInit) {",
+          "  const runId = pm.variables.replaceIn('{{$guid}}');",
+          "  const segment = () => String(Math.floor(Math.random() * 9000) + 1000);",
+          "  pm.collectionVariables.set('run_id', runId);",
+          "  pm.collectionVariables.set('signup_name', 'Postman User');",
+          "  pm.collectionVariables.set('signup_phone', '010-' + segment() + '-' + segment());",
+          "  pm.collectionVariables.set('signup_birth_date', '1997-01-15');",
+          "  pm.collectionVariables.set('signup_login_id', 'member_' + Date.now());",
+          "  pm.collectionVariables.set('signup_password', 'Passw0rd!123');",
+          "  pm.collectionVariables.set('signup_provider', 'MEMBER');",
+          "  pm.collectionVariables.set('signup_external_user_id', 'ext_' + runId);",
+          "  pm.collectionVariables.set('idem_signup', 'signup-' + runId);",
+          "  pm.collectionVariables.set('idem_login', 'login-' + runId);",
+          "  pm.collectionVariables.set('idem_refresh', 'refresh-' + runId);",
+          "}",
+          ""
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0) 사전 확인",
+      "item": [
+        {
+          "name": "01 CryptoOrder Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "let json = {};",
+                  "try { json = pm.response.json(); } catch (e) {}",
+                  "pm.test('health is UP', function () {",
+                  "  pm.expect(json.status).to.eql('UP');",
+                  "});",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/actuator/health"
+          },
+          "response": []
+        },
+        {
+          "name": "02 JWKS Endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "let json = {};",
+                  "try {",
+                  "  json = pm.response.json();",
+                  "} catch (e) {",
+                  "  throw new Error('JWKS 응답이 JSON이 아닙니다.');",
+                  "}",
+                  "pm.test('keys is array', function () {",
+                  "  pm.expect(Array.isArray(json.keys)).to.eql(true);",
+                  "});",
+                  "if (pm.collectionVariables.get('expect_jwks_mode') === 'true') {",
+                  "  pm.test('at least one key exists', function () {",
+                  "    pm.expect(json.keys.length > 0, 'JWKS keys length').to.eql(true);",
+                  "  });",
+                  "}",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{cryptoorder_base_url}}/.well-known/jwks.json"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1) CryptoOrder -> Custody 연동 확인",
+      "item": [
+        {
+          "name": "01 회원가입(커스터디 연동 트리거)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data = null;",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "pm.test('status is 200', function () {",
+                  "  if (pm.response.code !== 200) {",
+                  "    const message = data && data.message ? data.message : pm.response.text();",
+                  "    throw new Error('회원가입 실패. code=' + pm.response.code + ', message=' + message);",
+                  "  }",
+                  "});",
+                  "pm.test('token payload exists', function () {",
+                  "  pm.expect(data.tokenType).to.eql('Bearer');",
+                  "  pm.expect(data.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.userId).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('signup_user_id', data.userId);",
+                  "pm.collectionVariables.set('signup_access_token', data.accessToken);",
+                  "pm.collectionVariables.set('active_refresh_token', data.refreshToken);",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup"
+          },
+          "response": []
+        },
+        {
+          "name": "02 회원가입 재호출(동일 Idempotency-Key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('same userId as first signup', function () {",
+                  "  pm.expect(data.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "});",
+                  "pm.test('same accessToken as first signup (idempotent replay)', function () {",
+                  "  pm.expect(data.accessToken).to.eql(pm.collectionVariables.get('signup_access_token'));",
+                  "});",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_signup}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{signup_name}}\",\n  \"phone\": \"{{signup_phone}}\",\n  \"birthDate\": \"{{signup_birth_date}}\",\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\",\n  \"provider\": \"{{signup_provider}}\",\n  \"externalUserId\": \"{{signup_external_user_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/signup"
+          },
+          "response": []
+        },
+        {
+          "name": "03 로그인",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('login token payload exists', function () {",
+                  "  pm.expect(data.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.refreshToken).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('active_refresh_token', data.refreshToken);",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_login}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"{{signup_login_id}}\",\n  \"password\": \"{{signup_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/login"
+          },
+          "response": []
+        },
+        {
+          "name": "04 토큰 갱신",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('refresh token payload exists', function () {",
+                  "  pm.expect(data.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(data.userId).to.eql(pm.collectionVariables.get('signup_user_id'));",
+                  "});",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_refresh}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{active_refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{cryptoorder_base_url}}/auth/refresh"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2) Custody 직접 호출(옵션)",
+      "item": [
+        {
+          "name": "01 지갑 프로비저닝 직접 호출",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', function () {",
+                  "  pm.expect(pm.response.code >= 200 && pm.response.code < 300).to.eql(true);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "pm.test('response has userId/address', function () {",
+                  "  pm.expect(data.userId).to.be.a('string');",
+                  "  pm.expect(data.address).to.be.a('string');",
+                  "});",
+                  ""
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Service-Token",
+                "value": "{{service_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "pm-direct-{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{$guid}}\",\n  \"provider\": \"MEMBER\",\n  \"externalUserId\": \"pm-direct-{{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{custody_base_url}}{{custody_provision_path}}"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "cryptoorder_base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "custody_base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "custody_provision_path",
+      "value": "/internal/wallets/provision"
+    },
+    {
+      "key": "service_token",
+      "value": "replace-with-custody-service-token"
+    },
+    {
+      "key": "expect_jwks_mode",
+      "value": "true"
+    },
+    {
+      "key": "signup_provider",
+      "value": "MEMBER"
+    }
+  ]
+}
